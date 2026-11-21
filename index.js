@@ -1,7 +1,7 @@
 // EyeMessage: draws <sms>, <dm>, <email>, <letter>, <sign>, <screen> and <chat> tags as styled objects in chat.
 // The chat file and the prompt keep the plain tags; only the display changes. The look lives in style.css.
 import {
-    renderArtifacts, expandShorthand, typedHandles, commandToTag, collectContacts, namesIn, normaliseName, autoHex, overrideRule, INSTRUCTION,
+    renderArtifacts, expandShorthand, typedHandles, commandToTag, splitCommands, collectContacts, namesIn, normaliseName, autoHex, overrideRule, INSTRUCTION,
 } from './render.js';
 
 const { messageFormatter, eventSource, eventTypes } = SillyTavern.getContext();
@@ -89,23 +89,31 @@ function registerCommands() {
 
     const run = (kind) => (args, value) => {
         const { handles } = settings();
+        const canon = knownNames();
         const raw = Array.isArray(value) ? value.join(' ') : String(value ?? '');
-        const tag = commandToTag(kind, raw, args, handles, knownNames());
-        if (!tag) {
-            globalThis.toastr?.warning(`/${kind} needs ${kind === 'dm' ? 'an app, ' : ''}a recipient and a message.`, 'EyeMessage');
-            return '';
+        // Several commands written one per line arrive as one; each line becomes its own tag.
+        const tags = [];
+        for (const command of splitCommands(kind, raw, args)) {
+            const tag = commandToTag(command.kind, command.text, command.named, handles, canon);
+            if (!tag) {
+                globalThis.toastr?.warning(`/${command.kind} needs ${command.kind === 'dm' ? 'an app, ' : ''}a recipient and a message.`, 'EyeMessage');
+                continue;
+            }
+            // A screenname given with as= is remembered for that app, like the typed "as".
+            const app = normaliseName(tag.match(/ app="([^"]*)"/)?.[1] ?? '');
+            if (command.kind === 'dm' && command.named.as && handles[app] !== command.named.as) { handles[app] = command.named.as; save(); }
+            tags.push(tag);
         }
-        // A screenname given with as= is remembered for that app, like the typed "as".
-        const app = normaliseName(tag.match(/ app="([^"]*)"/)?.[1] ?? '');
-        if (kind === 'dm' && args.as && handles[app] !== args.as) { handles[app] = args.as; save(); }
+        if (!tags.length) return '';
 
+        const written = tags.join('\n');
         const box = /** @type {HTMLTextAreaElement} */ (document.getElementById('send_textarea'));
         if (box) {
-            box.value = box.value.trim() ? `${box.value.replace(/\s+$/, '')}\n${tag}` : tag;
+            box.value = box.value.trim() ? `${box.value.replace(/\s+$/, '')}\n${written}` : written;
             box.dispatchEvent(new Event('input', { bubbles: true }));
             box.focus();
         }
-        return tag;
+        return written;
     };
 
     const commands = [
@@ -129,7 +137,7 @@ function registerCommands() {
             rawQuotes: true,
             unnamedArgumentList,
             namedArgumentList,
-            returns: 'the tag that was written',
+            returns: 'the tag or tags that were written',
             helpString: `<div>${summary} It is not sent until you send it, so you can add prose or more messages.</div>`
                 + `<div><strong>Examples:</strong><ul>${examples.map(e => `<li><pre><code class="language-stscript">${e}</code></pre></li>`).join('')}</ul></div>`,
         }));

@@ -70,7 +70,7 @@ Or use a slash command, which writes the tag into the message box without sendin
 /email subject="Invoice" Frank see attached
 ```
 
-`/text` is the same command as `/sms`. Several recipients make a group thread. Quote a name that has spaces: `/sms "Carol Jones" see you at 9?`.
+`/text` is the same command as `/sms`. Several commands, one per line, are converted together. Several recipients make a group thread. Quote a name that has spaces: `/sms "Carol Jones" see you at 9?`.
 
 ## Colours
 

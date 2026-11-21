@@ -1,6 +1,6 @@
 // Checks for render.js. Run with:  node test.mjs
 import assert from 'node:assert/strict';
-import { renderArtifacts, expandShorthand, typedHandles, commandToTag, clockTime, namesIn, collectContacts, hueOf, normaliseName, autoHex, overrideRule, HUES, TAGS, INSTRUCTION } from './render.js';
+import { renderArtifacts, expandShorthand, typedHandles, commandToTag, splitCommands, clockTime, namesIn, collectContacts, hueOf, normaliseName, autoHex, overrideRule, HUES, TAGS, INSTRUCTION } from './render.js';
 
 // ---- names and hues ----
 assert.equal(normaliseName('@Bob_Smith '), normaliseName('bob smith'));
@@ -99,6 +99,38 @@ for (const built of [commandToTag('sms', "Bob I'm gonna be late"), commandToTag(
     assert.ok(renderArtifacts(built, me, 'Alice').includes('eye-out'), 'what a command builds draws as a sent message');
     assert.equal(expandShorthand(built), built, 'and sending it changes nothing');
 }
+
+// ---- several commands, one per line ----
+// SillyTavern hands the later lines to the first command as part of its message.
+const several = splitCommands('dm', 'first message\n/dm app=Chatter as=@alice to=@Dave_88 second message\n/text Bob "quoted" third\nnot a command, part of the third', { app: 'Chatter', as: '@alice', to: '@Dave_88' });
+assert.deepEqual(several.map(c => commandToTag(c.kind, c.text, c.named)), [
+    '<dm from="@alice" to="@Dave_88" app="Chatter">first message</dm>',
+    '<dm from="@alice" to="@Dave_88" app="Chatter">second message</dm>',
+    '<sms to="Bob">"quoted" third\nnot a command, part of the third</sms>',
+]);
+assert.equal(splitCommands('sms', 'Bob just one').length, 1);
+assert.deepEqual(splitCommands('sms', 'Bob a\n/sms time=22:29 Carol b=1 stays in the message')[1], { kind: 'sms', text: 'Carol b=1 stays in the message', named: { time: '22:29' } });
+assert.equal(splitCommands('sms', 'Bob see /sms for help\nand /dm too').length, 1, 'a command name in the middle of a line is just text');
+assert.deepEqual(panels(renderArtifacts(several.slice(0, 2).map(c => commandToTag(c.kind, c.text, c.named)).join('\n'), new Set(['alice']), 'Alice')).map(p => p.length), [2], 'two commands to one person draw as one conversation');
+
+// ---- a typed-looking line inside a tag stays part of that message ----
+const multi = '<sms to="Bob">line one\ntext Carol: not a new message</sms>\ntext Carol: a new message';
+assert.equal(expandShorthand(multi), '<sms to="Bob">line one\ntext Carol: not a new message</sms>\n<sms to="Carol">a new message</sms>');
+
+// ---- attribute values without quotes ----
+const bare = renderArtifacts('<thread><dm from="@alice" to="@Dave_88" app="Chatter">one</dm>\n<dm from=@alice to=@Dave_88 app=Chatter> two</dm></thread>', new Set(['alice']));
+assert.deepEqual(panels(bare).map(p => p.length), [2]);
+assert.ok(panels(bare)[0].every(b => b.includes('eye-out')), 'both are drawn as sent');
+assert.ok(panels(bare)[0][1].includes('eye-same'), 'the second is a double text: same writer, named once');
+assert.equal(renderArtifacts('<sms from=Bob time=9:41>x</sms>'), renderArtifacts('<sms from="Bob" time="9:41">x</sms>'));
+assert.deepEqual(namesIn('<dm from=@Dave_88 to=@alice app=Chatter>x</dm>'), ['@Dave_88', '@alice']);
+
+// ---- attribute order does not matter ----
+assert.equal(
+    renderArtifacts('<dm time="9:41 PM" app="Chatter" to="@alice" from="@Dave_88">x</dm>', new Set(['alice'])),
+    renderArtifacts('<dm from="@Dave_88" to="@alice" app="Chatter" time="9:41 PM">x</dm>', new Set(['alice'])),
+);
+assert.equal(commandToTag('dm', 'hi', { to: '@Dave_88', as: '@alice', app: 'Chatter' }), commandToTag('dm', 'hi', { app: 'Chatter', as: '@alice', to: '@Dave_88' }));
 
 // ---- live chat ----
 const live = renderArtifacts('<chat title="Guild chat">\ngamer_one: anyone on?\npixel_x: anyone *selling* copper?\n* Zed joined the channel\n</chat>');

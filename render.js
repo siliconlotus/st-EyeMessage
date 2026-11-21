@@ -40,7 +40,8 @@ export const HUES = 24;
 
 // The attribute part allows ">" inside a quoted value, e.g. subject="Q3 > Q2".
 const TAG_RE = new RegExp(`<(${[...TAGS, 'thread'].join('|')})\\b((?:[^>"']|"[^"]*"|'[^']*')*)>([\\s\\S]*?)</\\1>`, 'gi');
-const ATTR_RE = /([\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
+// Values may be quoted either way or, as HTML allows, not quoted at all: from=@alice.
+const ATTR_RE = /([\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/g;
 const CHAT_LINE = /^([^:\n]{1,32}?):\s+(\S.*)$/;
 
 const escapeHtml = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -60,7 +61,7 @@ export function hueOf(name) {
 
 function parseAttrs(text) {
     const attrs = {};
-    for (const m of text.matchAll(ATTR_RE)) attrs[m[1].toLowerCase()] = (m[2] ?? m[3]).trim();
+    for (const m of text.matchAll(ATTR_RE)) attrs[m[1].toLowerCase()] = (m[2] ?? m[3] ?? m[4]).trim();
     return attrs;
 }
 
@@ -332,12 +333,20 @@ function readTypedLine(word, head, body, canon) {
  */
 export function expandShorthand(mes, handles = {}, canon = () => null) {
     if (!mes) return mes;
-    return mes.replace(TYPED_LINE, (line, word, head, body) => {
+    const expand = text => text.replace(TYPED_LINE, (line, word, head, body) => {
         const read = readTypedLine(word, head, body, canon);
         if (!read) return line;
         const from = read.kind === 'dm' ? read.as || (read.app && handles[normaliseName(read.app)]) || '' : '';
         return buildTag(read.kind, { ...read, from }, read.body);
     });
+    // A line inside a tag that is already there belongs to that message, so only the text between tags is read.
+    let out = '';
+    let last = 0;
+    for (const match of mes.matchAll(TAG_RE)) {
+        out += expand(mes.slice(last, match.index)) + match[0];
+        last = match.index + match[0].length;
+    }
+    return out + expand(mes.slice(last));
 }
 
 /**
@@ -373,6 +382,31 @@ export function namesIn(mes) {
 function takeToken(text) {
     const m = text.match(/^\s*(?:"([^"]*)"|'([^']*)'|(\S+))\s*/);
     return m ? [m[1] ?? m[2] ?? m[3], text.slice(m[0].length)] : ['', text];
+}
+
+const COMMAND_KINDS = { sms: 'sms', text: 'sms', dm: 'dm', email: 'email' };
+const COMMAND_LINE = /\r?\n(?=\/(?:sms|text|dm|email)\b)/i;
+const COMMAND_ARG = /^\s*(to|app|as|time|subject)=(?:"([^"]*)"|'([^']*)'|(\S+))\s*/i;
+
+/**
+ * SillyTavern ends a command only at a pipe, so when several commands are written one per line, the
+ * later lines arrive as part of the first command's message. This splits them back out.
+ * @param {'sms'|'dm'|'email'} kind The command SillyTavern ran.
+ * @param {string} text Its message, which may hold further "/sms ...", "/dm ..." or "/email ..." lines.
+ * @param {object} [named] Its named arguments.
+ * @returns {{kind: string, text: string, named: object}[]} One entry per command, in order.
+ */
+export function splitCommands(kind, text, named = {}) {
+    const [first, ...lines] = String(text ?? '').split(COMMAND_LINE);
+    const commands = [{ kind, text: first, named }];
+    for (const line of lines) {
+        const [, word, after] = line.match(/^\/(sms|text|dm|email)\b([\s\S]*)$/i);
+        const args = {};
+        let rest = after;
+        for (let m; (m = rest.match(COMMAND_ARG)); rest = rest.slice(m[0].length)) args[m[1].toLowerCase()] = m[2] ?? m[3] ?? m[4];
+        commands.push({ kind: COMMAND_KINDS[word.toLowerCase()], text: rest, named: args });
+    }
+    return commands;
 }
 
 /**
