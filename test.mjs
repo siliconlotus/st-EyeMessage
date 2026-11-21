@@ -1,6 +1,10 @@
 // Checks for render.js. Run with:  node test.mjs
 import assert from 'node:assert/strict';
-import { renderArtifacts, expandShorthand, typedHandles, commandToTag, splitCommands, clockTime, namesIn, collectContacts, hueOf, normaliseName, autoHex, overrideRule, HUES, TAGS, INSTRUCTION } from './render.js';
+import { emptyStore, personaIn, learnHandle, forgetHandle, rememberNames, mergeStores, copyStore, takeLegacy } from './store.js';
+import { parseTree, systemWindowBody } from './system-window.js';
+import { channelsIn, channelKey, mergeChatBlocks, ANY_CHANNEL } from './render.js';
+import { renderArtifacts, expandShorthand, typedHandles, commandToTag, splitCommands, clockTime, namesIn, collectContacts, hueOf, normaliseName, autoHex, overrideRule, HUES, TAGS, TAG_LABELS, instructionFor, taughtByDefault } from './render.js';
+const INSTRUCTION = instructionFor(TAGS); // everything switched on
 
 // ---- names and hues ----
 assert.equal(normaliseName('@Bob_Smith '), normaliseName('bob smith'));
@@ -39,6 +43,19 @@ assert.ok(renderArtifacts(mine).includes('eye-in'), 'an unknown sender is drawn 
 
 // ---- what the model is told ----
 for (const tag of [...TAGS, 'thread']) assert.ok(INSTRUCTION.includes(`\`<${tag}`), `instructions list <${tag}>`);
+for (const tag of TAGS) assert.ok(TAG_LABELS[tag], `<${tag}> has a name for the settings panel`);
+// each tag brings its own line and example; the model is told only about the ones switched on
+const usual = instructionFor();
+assert.ok(!usual.includes('system_window') && !usual.includes('quest_log'), 'system windows are left out unless chosen');
+assert.ok(usual.includes('`<sms') && usual.includes('`<thread>`') && usual.includes('Example, two conversations'));
+assert.equal(taughtByDefault('system_window'), false);
+assert.ok(TAGS.filter(t => t !== 'system_window').every(taughtByDefault));
+const onlySigns = instructionFor(['sign']);
+assert.ok(onlySigns.includes('`<sign>`') && !onlySigns.includes('<thread') && !onlySigns.includes('Example') && !onlySigns.includes('{{user}}'), 'with no messages taught, the notes on threads and the example go too');
+const onlyWindows = instructionFor(['system_window']);
+assert.ok(onlyWindows.includes('Example, a system window') && !onlyWindows.includes('Example, two conversations'));
+assert.equal(instructionFor([]), '', 'nothing switched on: nothing injected');
+assert.equal(instructionFor(['system_window', 'sms']), instructionFor(['sms', 'system_window']), 'the order chosen does not matter');
 
 // ---- conversations: each one is drawn on its own panel ----
 /** The panels in a rendered message, each as the list of its bubbles. */
@@ -117,6 +134,52 @@ assert.deepEqual(panels(renderArtifacts(several.slice(0, 2).map(c => commandToTa
 const multi = '<sms to="Bob">line one\ntext Carol: not a new message</sms>\ntext Carol: a new message';
 assert.equal(expandShorthand(multi), '<sms to="Bob">line one\ntext Carol: not a new message</sms>\n<sms to="Carol">a new message</sms>');
 
+// ---- an account's handle and its display name ----
+const named = renderArtifacts('<thread app="Chatter"><dm from="@Dave_88" display_name="Dave R.">one</dm><dm from="@Erin">two</dm><dm from="@Dave_88">three</dm></thread>', new Set(['alice']));
+assert.ok(named.includes('<span class="eye-who">Dave R.</span><span class="eye-handle">@Dave_88</span>'), 'the display name is shown with the handle beside it');
+assert.ok(named.includes('<span class="eye-who">@Erin</span>') && !named.includes('<span class="eye-handle">@Erin'), 'an account with no display name shows its handle alone');
+assert.equal((named.match(/<span class="eye-who">Dave R\.<\/span>/g) || []).length, 2, 'given once, the display name is reused for that handle');
+assert.equal((named.match(/data-from="dave88"/g) || []).length, 2, 'colour and grouping go by the handle, not the display name');
+assert.equal(
+    renderArtifacts('<dm app="Chatter" from="@Dave_88" display-name="Dave R.">x</dm>'),
+    renderArtifacts('<dm app="Chatter" from="@Dave_88" display_name="Dave R.">x</dm>'), 'display-name is read the same as display_name');
+assert.equal(
+    renderArtifacts('<dm app="Chatter" from="@Dave_88" displayName="Dave R.">x</dm>'),
+    renderArtifacts('<dm app="Chatter" from="@Dave_88" display_name="Dave R.">x</dm>'), 'so is displayName');
+const mineNamed = renderArtifacts('<dm app="Chatter" from="@alice" display_name="Alice P" to="@Dave_88">x</dm>', new Set(['alice']));
+assert.ok(mineNamed.includes('eye-out') && mineNamed.includes('<span class="eye-who">Alice P</span><span class="eye-handle">@alice</span>'), 'your own account is labelled the same way');
+assert.deepEqual(panels(renderArtifacts('<dm app="Chatter" from="@Dave_88" display_name="Dave R.">a</dm>\n<dm app="Chatter" to="@Dave_88">b</dm>', new Set(['alice']), 'Alice')).map(p => p.length), [2],
+    'a display name does not split the conversation with that handle');
+assert.ok(INSTRUCTION.includes('display_name="Display name"') && INSTRUCTION.includes('from="@handle"') && INSTRUCTION.includes('from="Contact name"'));
+
+// ---- system window ----
+const status = renderArtifacts('The air chimes.\n<system_window title="Status">Name: Alice\nLevel: 3  →  4\n[Skill gained: Appraisal]</system_window>\nShe blinks.');
+assert.ok(status.includes('<div class="eye eye-system_window eye-in">') && status.includes('<span class="eye-title">Status</span>'));
+assert.ok(status.includes('Name: Alice<br>Level: 3  →  4<br>[Skill gained: Appraisal]'), 'its lines are kept as written');
+assert.ok(status.startsWith('The air chimes.') && status.endsWith('She blinks.'));
+assert.equal(renderArtifacts('<system>not ours</system>'), '<system>not ours</system>', 'a bare <system> tag is left alone');
+
+// ---- system window with nested tags of the model's own naming ----
+const example = INSTRUCTION.slice(INSTRUCTION.indexOf('<system_window title="Status">'));
+const win = renderArtifacts(example);
+assert.equal(win.trim().split('\n').length, 1, 'the whole window is one line');
+assert.ok(win.includes('<span class="eye-sw-heading">Identity</span><span class="eye-sw-cells"><span class="eye-sw-cell"><span class="eye-sw-label">Name</span><span class="eye-sw-value">Alice</span></span>'), 'short plain values sit side by side under a heading made from the tag name');
+assert.ok(win.includes('<span class="eye-sw-bar" data-name="hp"><span class="eye-sw-label">HP</span><span class="eye-sw-track"><span class="eye-sw-fill" style="width:70%"></span></span><span class="eye-sw-count">42 / 60</span></span>'), 'value and max make a bar');
+assert.ok(win.includes('<span class="eye-sw-label">STR</span><span class="eye-sw-value">7</span>'), 'a short tag name is an abbreviation');
+assert.ok(win.includes('<span class="eye-sw-row"><span class="eye-sw-value">Night Sight</span><span class="eye-sw-chips"><span class="eye-sw-chip">Level 1</span><span class="eye-sw-chip">New</span></span></span>'), 'repeated tags are a list; other attributes are shown beside each');
+assert.ok(win.includes('<span class="eye-sw-heading">Quest log</span>'));
+assert.ok(win.includes('<span class="eye-sw-group"><span class="eye-sw-heading">Clear the cellar<span class="eye-sw-chip">Active</span></span><span class="eye-sw-rows"><span class="eye-sw-row"><span class="eye-sw-label">Reward</span><span class="eye-sw-value">40 silver</span></span></span></span>'), 'a tag with words and tags inside is a section headed by its words');
+assert.equal(systemWindowBody('Name: Alice\nLevel: 3 < 4\n[Skill gained: Appraisal]'), null, 'plain lines are not nested');
+assert.equal(systemWindowBody('A <b>bold</b> line and an <i>italic</i> one'), null, 'formatting tags are not structure');
+// the reader is forgiving
+assert.deepEqual(parseTree('<a><b2>x</a>tail').children.map(c => c.name ?? c), ['a', 'tail'], 'a tag left open is closed by its parent');
+assert.equal(parseTree('</nope>text').children.join(''), 'text', 'a closing tag with no opener is ignored');
+assert.ok(systemWindowBody('<hp value="12" max="0"/><hp value="x" max="10"/>').includes('eye-sw-row'), 'a bar needs real numbers; otherwise it is a row');
+assert.ok(systemWindowBody('<hp value="90" max="60"/>').includes('width:100%'), 'a bar never overflows');
+assert.ok(systemWindowBody('Level up!\n<stats><str>8</str><agi>11</agi></stats>').startsWith('<span class="eye-sw"><span class="eye-sw-note">Level up!</span>'), 'loose text between tags is kept as a note');
+assert.ok(systemWindowBody('<item name="Potion" qty="3"/><item name="Rope"/>').includes('<span class="eye-sw-value">Potion</span><span class="eye-sw-chips"><span class="eye-sw-chip">Qty 3</span>'), 'a name attribute names the row');
+assert.ok(systemWindowBody('<note>She said "wait</note><note>for me"</note>').includes('She said &#34;wait'), 'quote marks are made safe here too');
+
 // ---- attribute values without quotes ----
 const bare = renderArtifacts('<thread><dm from="@alice" to="@Dave_88" app="Chatter">one</dm>\n<dm from=@alice to=@Dave_88 app=Chatter> two</dm></thread>', new Set(['alice']));
 assert.deepEqual(panels(bare).map(p => p.length), [2]);
@@ -131,6 +194,70 @@ assert.equal(
     renderArtifacts('<dm from="@Dave_88" to="@alice" app="Chatter" time="9:41 PM">x</dm>', new Set(['alice'])),
 );
 assert.equal(commandToTag('dm', 'hi', { to: '@Dave_88', as: '@alice', app: 'Chatter' }), commandToTag('dm', 'hi', { app: 'Chatter', as: '@alice', to: '@Dave_88' }));
+
+// ---- posting in a live chat yourself ----
+const seen = channelsIn('<chat title="Dressed as Kings">A: x</chat> prose <chat title="Guild Hall">B: y</chat><chat>C: untitled</chat>');
+assert.deepEqual(seen, ['Dressed as Kings', 'Guild Hall']);
+const room = { channels: seen, userName: 'Alice' };
+const post = (line, handles = {}) => expandShorthand(line, handles, undefined, room);
+assert.equal(post('chat: anyone on tonight?'), '<chat title="Guild Hall">Alice: anyone on tonight?</chat>', 'no channel named: the chat most recently seen');
+assert.equal(post('chat as Ace: hi'), '<chat title="Guild Hall">Ace: hi</chat>');
+assert.equal(post('chat: hi', { [channelKey('Guild Hall')]: 'Ace' }), '<chat title="Guild Hall">Ace: hi</chat>', 'the name used in that channel is remembered');
+assert.equal(post('chat: hi', { [ANY_CHANNEL]: 'Ace' }), '<chat title="Guild Hall">Ace: hi</chat>', 'else the name last used in any channel');
+assert.equal(post('chat dressed as kings: hi'), '<chat title="Dressed as Kings">Alice: hi</chat>', 'a known channel is found in any case, even with "as" in its name');
+assert.equal(post('chat dressed as kings as Ace: hi'), '<chat title="Dressed as Kings">Ace: hi</chat>');
+assert.equal(post('chat Trade: selling ore'), '<chat title="Trade">Alice: selling ore</chat>', 'a new channel starts with a capital or #');
+assert.equal(post('chat with bob: went fine'), 'chat with bob: went fine', 'prose is left alone');
+assert.equal(expandShorthand('chat: hello', {}, undefined, { channels: [], userName: 'Alice' }), 'chat: hello', 'with no live chat yet there is nothing to answer in');
+assert.equal(post('chat as Ace: one\nchat: two\ntext Bob: three\nchat Trade: four', { [channelKey('Guild Hall')]: 'Ace' }),
+    '<chat title="Guild Hall">Ace: one\nAce: two</chat>\n<sms to="Bob">three</sms>\n<chat title="Trade">Alice: four</chat>', 'lines posted one after another in one chat are one block');
+assert.deepEqual(typedHandles('chat as Ace: one', undefined, room), [{ app: channelKey('Guild Hall'), handle: 'Ace' }]);
+// a kind of game channel can be typed too, and writes channel= like the commands
+assert.equal(post('chat party as Ace: ready'), '<chat channel="party">Ace: ready</chat>');
+assert.equal(post('chat in party as Ace: ready'), post('chat party as Ace: ready'), '"in" is allowed');
+assert.equal(post('chat party: ready', { [channelKey('party')]: 'Ace' }), '<chat channel="party">Ace: ready</chat>', 'and the name is remembered for that kind');
+assert.equal(post('chat whisper to Bob: hey'), '<chat channel="whisper" to="Bob">Alice: hey</chat>');
+assert.equal(post('chat in guild hall: hi'), '<chat title="Guild Hall">Alice: hi</chat>', 'a channel that is really called that wins over the kind');
+assert.deepEqual(typedHandles('chat party as Ace: ready', undefined, room), [{ app: channelKey('party'), handle: 'Ace' }]);
+// the kind can stand first, without "chat"
+assert.equal(post('party: ready'), '<chat channel="party">Alice: ready</chat>');
+assert.equal(post('guild as Ace: hi'), '<chat channel="guild">Ace: hi</chat>');
+assert.equal(post('whisper Bob: hey'), '<chat channel="whisper" to="Bob">Alice: hey</chat>');
+assert.equal(post('whisper to Bob as Ace: hey'), '<chat channel="whisper" to="Bob">Ace: hey</chat>');
+assert.equal(post('reply: on my way'), '<chat channel="reply">Alice: on my way</chat>');
+assert.equal(expandShorthand('whisper bob: hey', {}, n => (n.toLowerCase() === 'bob' ? 'Bob \u{1F43A}' : null), room), '<chat channel="whisper" to="Bob \u{1F43A}">Alice: hey</chat>', 'a known name can be typed plainly');
+assert.deepEqual(typedHandles('guild as Ace: hi', undefined, room), [{ app: channelKey('guild'), handle: 'Ace' }]);
+// the first word of a chat line is lowercase; a sentence that starts with the same word is not one
+for (const prose of ['whisper it softly: nobody is listening', 'Party of five: we set out at dawn', 'guild hall rules: no fighting', 'Yelling: pointless', 'chat whisper to nobody: hm',
+    'Party: four of us.', 'Reply: none.', 'Chat: muted.', 'Whisper Bob: hey', 'Guild as Ace: hi']) {
+    assert.equal(post(prose), prose, `left alone: ${prose}`);
+}
+assert.equal(post('chat party as Ace: one\nchat party: two', { [channelKey('party')]: 'Ace' }), '<chat channel="party">Ace: one\nAce: two</chat>');
+const posted = renderArtifacts('<chat title="Party">Ace: ready\nFinn: lol</chat>', new Set(['ace']));
+assert.ok(posted.includes('<span class="eye-nick eye-own">Ace</span>'), 'your own line is marked as yours');
+assert.match(posted, /<span class="eye-nick eye-hue-\d+" data-from="finn">Finn<\/span>/);
+
+// ---- commands for chats ----
+const cmd = (kind, text, named = {}, handles = {}) => commandToTag(kind, text, named, handles, undefined, room);
+assert.equal(cmd('chat', 'anyone on?', { as: 'Ace' }), '<chat title="Guild Hall">Ace: anyone on?</chat>');
+assert.equal(cmd('chat', 'x', { title: 'lowercase room' }), '<chat title="lowercase room">Alice: x</chat>', 'a title given to the command is taken as it is');
+assert.equal(commandToTag('chat', 'x', {}, {}, undefined, { channels: [] }), '', 'no chat to answer in');
+// a game's chat command knows the kind of channel, not what the scene calls it, so it claims no title
+assert.equal(cmd('party', 'ready when you are', {}, { [ANY_CHANNEL]: 'Ace' }), '<chat channel="party">Ace: ready when you are</chat>');
+assert.equal(cmd('party', 'x', {}, { [channelKey('party')]: 'Tank', [ANY_CHANNEL]: 'Ace' }), '<chat channel="party">Tank: x</chat>', 'a name used in that kind of channel comes first');
+assert.equal(cmd('guild', 'cellar?'), '<chat channel="guild">Alice: cellar?</chat>');
+assert.equal(cmd('yell', 'ore'), '<chat channel="yell">Alice: ore</chat>');
+assert.equal(cmd('whisper', 'Bob hey'), '<chat channel="whisper" to="Bob">Alice: hey</chat>');
+assert.equal(cmd('reply', 'on my way'), '<chat channel="reply">Alice: on my way</chat>');
+assert.equal(cmd('whisper', 'Bob'), '', 'a whisper needs a message');
+const heads = html => [...html.matchAll(/<span class="eye-title">(.*?)<\/span>/g)].map(m => m[1]);
+assert.deepEqual(heads(renderArtifacts('<chat channel="party">A: x</chat><chat channel="whisper" to="Bob">A: y</chat><chat title="Guild Hall" channel="guild">A: z</chat><chat>A: w</chat>')),
+    ['Party', 'Whisper to Bob', 'Guild Hall'], 'the box is headed by its title, or failing that by the kind of channel');
+assert.equal(mergeChatBlocks('<chat channel="party">A: one</chat>\n<chat channel="party">A: two</chat>\n<chat channel="guild">A: three</chat>\nprose\n<chat channel="guild">A: four</chat>'),
+    '<chat channel="party">A: one\nA: two</chat>\n<chat channel="guild">A: three</chat>\nprose\n<chat channel="guild">A: four</chat>', 'only lines in the same chat, with nothing between, are joined');
+assert.equal(mergeChatBlocks('<chat title="A > B">x: 1</chat>\n<chat title="A > B">x: 2</chat>'), '<chat title="A > B">x: 1\nx: 2</chat>');
+assert.deepEqual(splitCommands('sms', 'Bob a\n/eye-dm chatter @Dave_88 b\n/eye-chat as=Ace c\n/chat-jump 3\n/p ready\n/w Bob hey\n/proxy x').map(c => `${c.kind}:${c.text.trim()}`),
+    ['sms:Bob a', 'dm:chatter @Dave_88 b', 'chat:c\n/chat-jump 3', 'party:ready', 'whisper:Bob hey\n/proxy x'], 'only our own command names start a new command; others stay text');
 
 // ---- live chat ----
 const live = renderArtifacts('<chat title="Guild chat">\ngamer_one: anyone on?\npixel_x: anyone *selling* copper?\n* Zed joined the channel\n</chat>');
@@ -197,6 +324,16 @@ assert.deepEqual(panels(renderArtifacts(expandShorthand("text bob: a\ntext bob: 
 assert.equal(commandToTag('sms', 'to bob running late', {}, {}, canon), '<sms to="Bob">running late</sms>');
 assert.equal(commandToTag('sms', 'Tobias running late'), '<sms to="Tobias">running late</sms>', '"to" is only dropped as a word of its own');
 
+// ---- a name with an emoji is found by typing it plainly ----
+const emojiNames = new Map(namesIn('<thread><sms from="Bob \u{1F43A}">hi</sms></thread><sms to="Mum \u2764\uFE0F">x</sms>').map(n => [normaliseName(n), n]));
+const emojiCanon = n => emojiNames.get(normaliseName(n)) ?? null;
+assert.equal(expandShorthand('text bob: on my way', {}, emojiCanon), '<sms to="Bob \u{1F43A}">on my way</sms>');
+assert.equal(expandShorthand('text mum 9:13: hi', {}, emojiCanon), '<sms to="Mum \u2764\uFE0F" time="9:13 AM">hi</sms>');
+assert.equal(commandToTag('sms', 'bob on my way', {}, {}, emojiCanon), '<sms to="Bob \u{1F43A}">on my way</sms>');
+assert.equal(expandShorthand('text Bob \u{1F43A}: on my way'), '<sms to="Bob \u{1F43A}">on my way</sms>', 'typing the emoji works too');
+assert.equal(hueOf('Bob \u{1F43A}'), hueOf('bob'), 'the emoji does not change the colour');
+assert.deepEqual(panels(renderArtifacts('<sms from="Bob \u{1F43A}">a</sms>\n<sms to="Bob">b</sms>', new Set(['alice']), 'Alice')).map(p => p.length), [2], 'or split the conversation');
+
 // ---- quote marks never pair across bubbles ----
 const quoteStep = mes => mes.replace(/<([^>]+)>/g, (_, c) => '<' + c.replace(/"/g, '\ufffe') + '>')
     .replace(/(".*?")|(\u201C.*?\u201D)/g, m => `<q>${m}</q>`).replace(/\ufffe/g, '"');
@@ -244,5 +381,47 @@ assert.ok(overrideRule('bob', '#fafafa').includes('--eye-fg: #000000'), 'near-wh
 assert.ok(!overrideRule('bob', '#050505').includes('--eye-nick: #050505'), 'near-black pick is lightened for the dark chat panel');
 assert.ok(overrideRule('bob', '#ffcc00').includes('--eye-nick: #ffcc00'), 'a bright pick is used as it is in the chat panel');
 assert.ok(overrideRule('bob', '#7a2e4d').startsWith('.mes_text [data-from="bob"] {'));
+
+// ---- what is remembered: one set per chat, or per character when its chats share one ----
+const chatSet = emptyStore();
+learnHandle(chatSet, 'Alice', 'chatter', '@alice');
+assert.equal(learnHandle(chatSet, 'Alice', 'chatter', '@alice'), false, 'the same handle again changes nothing');
+learnHandle(chatSet, 'Alice', 'chatter', '@AliceCo');
+assert.deepEqual(personaIn(chatSet, 'Alice'), { accounts: ['@alice', '@AliceCo'], handles: { chatter: '@AliceCo' } }, 'two accounts on one app are both kept; the last used is the default');
+assert.deepEqual(personaIn(chatSet, 'Someone else'), { accounts: [], handles: {} }, 'another persona has its own accounts');
+assert.ok(!('Someone else' in chatSet.personas), 'reading a persona does not create it');
+forgetHandle(chatSet, 'Alice', '@AliceCo');
+assert.deepEqual(personaIn(chatSet, 'Alice'), { accounts: ['@alice'], handles: {} });
+
+const characterSet = emptyStore();
+characterSet.colors.bob = '#000000';
+characterSet.colors.carol = '#ffffff';
+learnHandle(characterSet, 'Alice', 'chatter', '@old');
+rememberNames(characterSet, ['Bob \u{1F43A}', 'Carol']);
+assert.equal(rememberNames(characterSet, ['bob', 'CAROL']), false, 'a name already known keeps its first spelling');
+chatSet.colors.bob = '#112233';
+chatSet.inject = false;
+chatSet.tags.system_window = true;
+learnHandle(chatSet, 'Alice', 'chatter', '@AliceCo');
+const before = JSON.stringify(chatSet);
+const shared = mergeStores(copyStore(characterSet), chatSet);
+assert.deepEqual(shared.colors, { bob: '#112233', carol: '#ffffff' }, 'the set being merged in wins a clash; nothing else is lost');
+assert.equal(emptyStore().inject, true, 'injection is on unless turned off');
+assert.deepEqual(shared.tags, { system_window: true }, 'which tags are taught carries over');
+assert.equal(shared.inject, false, 'turning it off in the set merged in carries over');
+assert.deepEqual(shared.personas.Alice, { accounts: ['@old', '@alice', '@AliceCo'], handles: { chatter: '@AliceCo' } });
+assert.deepEqual(shared.names, { bob: 'Bob \u{1F43A}', carol: 'Carol' });
+assert.equal(JSON.stringify(chatSet), before, 'merging does not change the set merged in');
+const copied = copyStore(shared);
+copied.colors.bob = '#abcdef';
+assert.equal(shared.colors.bob, '#112233', 'a copy is separate');
+
+// ---- moving what earlier versions kept for every chat ----
+const oldSettings = { colors: { bob: '#112233' }, handles: { chatter: '@alice' }, accounts: ['@alice', '@AliceCo'], inject: false, shared: { x: true } };
+const moved = takeLegacy(oldSettings, 'Alice');
+assert.deepEqual(moved, { colors: { bob: '#112233' }, inject: true, tags: {}, personas: { Alice: { accounts: ['@alice', '@AliceCo'], handles: { chatter: '@alice' } } }, names: {} });
+assert.deepEqual(oldSettings, { shared: { x: true } }, 'the old fields are removed and nothing else is touched');
+assert.equal(takeLegacy(oldSettings, 'Alice'), null, 'there is nothing to move a second time');
+assert.equal(takeLegacy({ colors: {}, handles: {}, accounts: [], inject: false }, 'Alice'), null, 'an empty old set is not moved, and its old off-by-default choice is dropped');
 
 console.log('ok: all checks passed');

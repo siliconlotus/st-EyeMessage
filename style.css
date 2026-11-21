@@ -34,6 +34,8 @@
 }
 .custom-eye-head > span { display: inline; }
 .custom-eye-who { font-weight: 600; }
+/* An account's handle, shown beside its display name. */
+.custom-eye-handle { margin-left: 0.4em; opacity: 0.75; }
 .custom-eye-time { opacity: 0.65; }
 .custom-eye-time::before { content: " · "; }
 .custom-eye-time:first-child::before { content: ""; }
@@ -161,6 +163,8 @@
     color: var(--eye-nick, hsl(var(--eye-hue) 75% 72%));
 }
 .custom-eye-nick::after { content: ":"; }
+/* A line you posted yourself. */
+.custom-eye-nick.custom-eye-own { color: #8ab4ff; }
 .custom-eye-sys { font-style: italic; color: #adadb8; }
 
 /* ---- Email ---- */
@@ -237,6 +241,111 @@
     font-weight: 400;
 }
 
+/* ---- System window: the status screens and notifications of a game-like world ---- */
+.custom-eye-system_window {
+    width: fit-content;
+    min-width: min(100%, 16em);
+    max-width: min(100%, 34em);
+    margin-left: auto;
+    margin-right: auto;
+    padding: 0.7em 1.1em;
+    font-family: "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    font-size: 0.9em;
+    letter-spacing: 0.02em;
+    color: #e2f4ff;
+    background: #0b1c33;
+    border: 1px solid #56b9ec;
+    outline: 1px solid #0b1c33;
+    border-radius: 3px;
+}
+/* Keeps the alignment of a stat table. */
+.custom-eye-system_window .custom-eye-body { white-space: pre-wrap; }
+.custom-eye-system_window .custom-eye-title {
+    text-align: center;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #8fd3f7;
+    padding-bottom: 0.4em;
+    margin-bottom: 0.5em;
+    border-bottom: 1px solid #2f6f9c;
+}
+
+/* A system window with nested tags. Each tag is drawn by its shape: a section, a row, a bar, or a
+   short value in a cell. To colour a bar by its tag name:
+       .custom-eye-sw-bar[data-name="stamina"] { --eye-bar: #5fbf7a; } */
+.custom-eye-sw,
+.custom-eye-sw-group,
+.custom-eye-sw-rows,
+.custom-eye-sw-heading,
+.custom-eye-sw-note { display: block; }
+.custom-eye-sw-group + .custom-eye-sw-group,
+.custom-eye-sw-rows > * + .custom-eye-sw-group,
+.custom-eye-sw-rows + .custom-eye-sw-note,
+.custom-eye-sw-note + .custom-eye-sw-rows { margin-top: 0.65em; }
+.custom-eye-sw-heading {
+    font-size: 0.78em;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #8fd3f7;
+    margin-bottom: 0.3em;
+}
+/* A section inside a section is headed by its own words, such as a quest's name. */
+.custom-eye-sw-group .custom-eye-sw-group > .custom-eye-sw-heading {
+    font-size: 1em;
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: none;
+    color: inherit;
+    margin-bottom: 0.1em;
+}
+.custom-eye-sw-group .custom-eye-sw-group > .custom-eye-sw-rows { margin-left: 0.9em; }
+.custom-eye-sw-row { display: flex; gap: 0.6em; align-items: baseline; padding: 0.12em 0; }
+.custom-eye-sw-label { color: #8fb7d6; }
+.custom-eye-sw-value { flex: 1; }
+.custom-eye-sw-chips { display: inline-flex; gap: 0.3em; margin-left: auto; }
+.custom-eye-sw-chip {
+    font-size: 0.78em;
+    padding: 0.05em 0.45em;
+    border: 1px solid #2f6f9c;
+    border-radius: 3px;
+    color: #bfe6fb;
+    letter-spacing: 0;
+    text-transform: none;
+    white-space: nowrap;
+}
+.custom-eye-sw-heading .custom-eye-sw-chip { margin-left: 0.6em; font-weight: 400; }
+.custom-eye-sw-cells { display: flex; flex-wrap: wrap; gap: 0.4em 0.5em; }
+.custom-eye-sw-cell {
+    display: inline-flex;
+    flex-direction: column;
+    min-width: 3.6em;
+    padding: 0.25em 0.6em;
+    color: #e2f4ff;
+    background: #12294a;
+    border-radius: 3px;
+}
+.custom-eye-sw-cell .custom-eye-sw-label { font-size: 0.72em; }
+.custom-eye-sw-cell .custom-eye-sw-value { font-weight: 600; }
+.custom-eye-sw-bar {
+    display: grid;
+    grid-template-columns: 3.2em minmax(8em, 1fr) auto;
+    gap: 0.5em;
+    align-items: center;
+    padding: 0.15em 0;
+}
+.custom-eye-sw-track { display: block; height: 0.5em; background: #12294a; border-radius: 0.25em; overflow: hidden; }
+.custom-eye-sw-fill { display: block; height: 100%; background: var(--eye-bar, #56b9ec); }
+.custom-eye-sw-bar[data-name="hp"],
+.custom-eye-sw-bar[data-name="health"] { --eye-bar: #e0605a; }
+.custom-eye-sw-bar[data-name="mp"],
+.custom-eye-sw-bar[data-name="mana"] { --eye-bar: #6a8ff0; }
+.custom-eye-sw-bar[data-name="sp"],
+.custom-eye-sw-bar[data-name="stamina"] { --eye-bar: #5fbf7a; }
+.custom-eye-sw-bar[data-name="xp"],
+.custom-eye-sw-bar[data-name="exp"] { --eye-bar: #e0b84a; }
+.custom-eye-sw-count { font-size: 0.85em; font-variant-numeric: tabular-nums; }
+.custom-eye-sw-note { text-align: center; opacity: 0.85; }
+
 /* ---- Settings panel: contact colours. Inherits the theme's own text and background. ---- */
 .eyemessage-list { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; }
 .eyemessage-row { display: flex; align-items: center; gap: 8px; }
@@ -246,4 +355,5 @@
 .eyemessage-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .eyemessage-count { opacity: 0.6; font-size: 0.85em; }
 .eyemessage-group { margin-top: 8px; font-size: 0.85em; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.06em; }
+.eyemessage-taught { display: flex; flex-wrap: wrap; gap: 2px 14px; margin: 2px 0 8px 22px; }
 .eyemessage-empty { opacity: 0.7; font-style: italic; margin: 6px 0; }

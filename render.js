@@ -1,50 +1,81 @@
 // EyeMessage renderer. Pure functions, no SillyTavern imports, so node can test them (see test.mjs).
+import { escapeHtml, parseAttrs, inlineMarks, span } from './html.js';
+import { systemWindowBody } from './system-window.js';
 
 /**
  * The tags, each with the form shown to the model and what it is for.
  * A new object needs a row here and a `.custom-eye-<tag>` rule in style.css; nothing else lists the tags.
  */
 const TAG_GUIDE = {
-    sms: ['<sms from="Sender">', 'a phone text, one tag per message.'],
-    dm: ['<dm app="App name" from="Sender">', 'a direct message inside an app, one tag per message.'],
-    chat: ['<chat title="Channel or stream">', 'a live chat with many voices: a stream chat, a guild channel, a comment thread. Inside it, one line per message, written `Name: message`.'],
+    sms: ['<sms from="Contact name">', 'a phone text, one tag per message. `from` is the sender as the reader\'s phone names them.'],
+    dm: ['<dm app="App name" from="@handle" display_name="Display name">', 'a direct message inside an app, one tag per message. `from` is the account\'s handle. `display_name` is the name that account shows; give it on the account\'s first message in a thread.'],
+    chat: ['<chat title="Channel or stream">', 'a live text chat with many participants: a stream chat, a guild channel, a comment thread. Inside it, one line per message, written `Name: message`.'],
     email: ['<email from="Sender" subject="Subject line">', 'an email.'],
     letter: ['<letter from="Sender">', 'anything on paper: a letter, a note, a card, a receipt.'],
     sign: ['<sign>', 'anything posted or painted: a sign, a placard, a chalkboard.'],
     screen: ['<screen title="What it is">', 'anything else on a display: a terminal, a feed, an app.'],
+    system_window: ['<system_window title="What it shows">', 'a window shown by a game-like System the world itself runs: a status screen, a notification, a quest, a skill gained. Write plain lines, or give it structure with nested tags of your own naming; a tag with `value` and `max` is drawn as a bar.'],
 };
 
 /** Tags the model may write. */
 export const TAGS = Object.keys(TAG_GUIDE);
 
-/** What the model is told when "Tell the model about these tags" is on. {{user}} is filled in by SillyTavern. */
-export const INSTRUCTION = `[Diegetic Artifacts: Tags]
-When someone in the scene reads or looks at a written or on-screen thing, give its words inside one of these tags, where a blockquote would otherwise go. The interface draws the object. Write no HTML, styling or markdown for it.
+/** What each tag is called in the settings panel. */
+export const TAG_LABELS = {
+    sms: 'Texts', dm: 'App messages', chat: 'Live chats', email: 'Emails', letter: 'Letters and notes',
+    sign: 'Signs', screen: 'Screens', system_window: 'System windows',
+};
 
-${Object.values(TAG_GUIDE).map(([form, use]) => `- \`${form}\` ${use}`).join('\n')}
+/** Tags the model is not told about unless they are switched on: they suit only some worlds. */
+const OFF_UNLESS_CHOSEN = new Set(['system_window']);
+/** Whether the model is told about a tag when nothing has been chosen for it. */
+export const taughtByDefault = tag => !OFF_UNLESS_CHOSEN.has(tag);
 
-Texts and app messages go inside \`<thread>\`, one \`<thread>\` per conversation, with its messages in order. A different person or group is a different thread. An app thread can name its app once, as \`<thread app="App name">\`. A message can optionally carry a timestamp, as \`time="9:41 PM"\`. A plain line between messages in a thread is shown as a note, such as a date or \`Seen 2:14 PM\`.
-
-{{user}}'s own sent messages appear in the history as \`<sms to="Recipient">\` or \`<dm to="Recipient">\`, with {{user}}'s screenname as \`from\` where one is used.
-
-Inside the tag are only the object's own words, in its writer's voice and habits. Narration and reactions stay outside it, in plain prose. A turn in which nobody reads anything uses none of these tags.
-
-Example, two conversations in one turn:
+const MESSAGES_EXAMPLE = `Example, two conversations in one turn:
 Two people answer while the kettle is still filling.
 <thread><sms from="Mara">Running late. Save me the seat by the window?</sms>
 <sms from="Mara">Ten minutes, I swear.</sms></thread>
 <thread><sms from="Tobias">Call me when you are free.</sms></thread>`;
+
+const SYSTEM_WINDOW_EXAMPLE = `Example, a system window with structure:
+<system_window title="Status">
+<identity><name>Alice</name><class>Wanderer</class><level>4</level></identity>
+<vitals><hp value="42" max="60"/><mp value="18" max="18"/></vitals>
+<attributes><str>7</str><agi>11</agi><int>14</int></attributes>
+<skills><skill level="2">Appraisal</skill><skill level="1" new="true">Night Sight</skill></skills>
+<quest_log><quest status="active">Clear the cellar<reward>40 silver</reward></quest></quest_log>
+</system_window>`;
+
+/**
+ * The instructions injected into the system prompt, for the tags that are switched on. Each tag brings
+ * its own line, and its example where it has one; the notes on threads come with texts and app messages.
+ * {{user}} is filled in by SillyTavern.
+ * @param {string[]} [tags] The tags to teach. Defaults to those taught unless switched off.
+ * @returns {string} Empty when no tag is taught.
+ */
+export function instructionFor(tags = TAGS.filter(taughtByDefault)) {
+    const taught = TAGS.filter(tag => tags.includes(tag));
+    if (!taught.length) return '';
+    const has = tag => taught.includes(tag);
+    const messages = has('sms') || has('dm');
+    return [
+        `[Diegetic Artifacts: Tags]
+When someone in the scene reads or looks at a written or on-screen thing, give its words inside one of these tags, where a blockquote would otherwise go. The interface draws the object. Write no HTML, styling or markdown for it.`,
+        taught.map(tag => `- \`${TAG_GUIDE[tag][0]}\` ${TAG_GUIDE[tag][1]}`).join('\n'),
+        messages && `Texts and app messages go inside \`<thread>\`, one \`<thread>\` per conversation, with its messages in order. A different person or group is a different thread. An app thread can name its app once, as \`<thread app="App name">\`. A message can optionally carry a timestamp, as \`time="9:41 PM"\`. A plain line between messages in a thread is shown as a note, such as a date or \`Seen 2:14 PM\`.`,
+        messages && `{{user}}'s own sent messages appear in the history as \`<sms to="Recipient">\` or \`<dm to="Recipient">\`, with {{user}}'s own handle as \`from\` where one is used.`,
+        `Inside the tag are only the object's own words, in its writer's voice and habits. Narration and reactions stay outside it, in plain prose. A turn in which nobody reads anything uses none of these tags.`,
+        has('sms') && MESSAGES_EXAMPLE,
+        has('system_window') && SYSTEM_WINDOW_EXAMPLE,
+    ].filter(Boolean).join('\n\n');
+}
 
 /** Number of sender hues. style.css defines one `.custom-eye-hue-N` class per bucket. */
 export const HUES = 24;
 
 // The attribute part allows ">" inside a quoted value, e.g. subject="Q3 > Q2".
 const TAG_RE = new RegExp(`<(${[...TAGS, 'thread'].join('|')})\\b((?:[^>"']|"[^"]*"|'[^']*')*)>([\\s\\S]*?)</\\1>`, 'gi');
-// Values may be quoted either way or, as HTML allows, not quoted at all: from=@alice.
-const ATTR_RE = /([\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/g;
 const CHAT_LINE = /^([^:\n]{1,32}?):\s+(\S.*)$/;
-
-const escapeHtml = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 /** "Bob Smith", "bob smith " and "@Bob_Smith" are one sender. Also used as the CSS key for a name. */
 export const normaliseName = name => name.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
@@ -59,39 +90,22 @@ export function hueOf(name) {
     return (h >>> 0) % HUES;
 }
 
-function parseAttrs(text) {
-    const attrs = {};
-    for (const m of text.matchAll(ATTR_RE)) attrs[m[1].toLowerCase()] = (m[2] ?? m[3] ?? m[4]).trim();
-    return attrs;
-}
-
-// Markdown is not parsed inside an HTML block, so the two marks a model reaches for are converted here.
-const inlineMarks = s => quoteSafe(s
-    .replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>')
-    .replace(/\*([^*\n]+)\*/g, '<i>$1</i>'));
-
-const span = (cls, text) => text ? `<span class="${cls}">${text}</span>` : '';
-
-/**
- * SillyTavern wraps each pair of quote marks on a line in <q>. A whole conversation is one line, so a
- * stray quote in one bubble would pair with one in another and wrap across both. Quote marks in the
- * text of an object are written as character references, which that step does not see. Tags are left alone.
- */
-const quoteSafe = html => html.replace(/<[^>]*>|["\u201C\u201D\u00AB\u00BB\u300C\u300D\u300E\u300F\uFF02]/g,
-    m => m.length > 1 ? m : `&#${m.codePointAt(0)};`);
-
 /** "@A, @B" -> ["@A", "@B"]. A `to` may name several people, for a group thread. */
 const people = s => (s || '').split(',').map(x => x.trim()).filter(Boolean);
 
 /** The hue class and the CSS key for a sender. Only senders get them: an outgoing bubble stays the user's own colour. */
 const senderMarks = name => name ? { cls: `eye-hue-${hueOf(name)}`, data: ` data-from="${escapeHtml(normaliseName(name))}"` } : { cls: '', data: '' };
 
-/** A live chat body is one `Name: message` per line. A line without a name is a system line. */
-function chatRows(body) {
+/**
+ * A live chat body is one `Name: message` per line. A line without a name is a system line.
+ * A line by one of the user's own names is marked as theirs and keeps the user's colour.
+ */
+function chatRows(body, own = new Set()) {
     return body.trim().split(/\r?\n/).map(l => l.trim()).filter(Boolean).map((line) => {
         const m = line.match(CHAT_LINE);
         if (!m) return span('eye-line eye-sys', inlineMarks(line));
-        const { cls, data } = senderMarks(m[1].trim());
+        const mine = own.has(normaliseName(m[1]));
+        const { cls, data } = mine ? { cls: 'eye-own', data: '' } : senderMarks(m[1].trim());
         return `<span class="eye-line"><span class="eye-nick ${cls}"${data}>${escapeHtml(m[1].trim())}</span> `
             + `<span class="eye-said">${inlineMarks(m[2])}</span></span>`;
     }).join('');
@@ -102,22 +116,36 @@ const MESSAGE_TAGS = new Set(['sms', 'dm']);
 const bodyHtml = raw => `<span class="eye-body">${inlineMarks(raw.trim()).replace(/\r?\n/g, '<br>')}</span>`;
 const noteHtml = raw => span('eye-note', inlineMarks(raw.trim()).replace(/\r?\n/g, '<br>'));
 
+// The name an account shows beside its handle. Models write the attribute several ways.
+const displayName = a => a.display_name || a['display-name'] || a.displayname || '';
+
 /**
  * Who wrote a message and how it is labelled. Both sides are labelled the same way, by the writer:
- * the sender, or the user's own screenname or persona name. A received message addressed to a third
+ * the sender, or the user's own handle or persona name. A received message addressed to a third
  * person keeps its "A → B".
+ *
+ * An account has a handle (`from`) and may have a display name. The label shows the display name with
+ * the handle beside it; colour and grouping always go by the handle. A display name is given once:
+ * `names` carries it to later messages from the same handle in the same chat message.
+ * @param {Map<string, string>} names Display name by normalised handle.
  */
-function writer(a, own, userName) {
+function writer(a, own, userName, names) {
     const outgoing = a.from ? own.has(normaliseName(a.from)) : !!a.to;
     const toUser = people(a.to).some(n => own.has(normaliseName(n)));
     const thirdParty = !outgoing && a.to && !toUser ? ` → ${people(a.to).join(', ')}` : '';
+
+    const key = normaliseName(a.from || '');
+    if (key && displayName(a)) names.set(key, displayName(a));
+    const display = displayName(a) || names.get(key) || '';
+    const base = (outgoing ? a.from || userName : a.from || '') + thirdParty;
+    const label = display
+        ? span('eye-who', escapeHtml(display)) + span('eye-handle', a.from ? escapeHtml(base) : '')
+        : span('eye-who', escapeHtml(base));
     return {
         outgoing,
-        who: outgoing ? 'out' : `in|${normaliseName(a.from || '')}`,
+        who: outgoing ? 'out' : `in|${key}`,
         sender: senderMarks(outgoing ? '' : a.from || ''),
-        head: span('eye-head',
-            span('eye-who', escapeHtml(outgoing ? a.from || userName : (a.from || '') + thirdParty))
-            + span('eye-time', escapeHtml(a.time || ''))),
+        head: span('eye-head', label + span('eye-time', escapeHtml(a.time || ''))),
     };
 }
 
@@ -135,7 +163,7 @@ function panelOpen(tag, app, to) {
 }
 
 /** A <thread>: everything inside is one conversation, drawn on one panel. Text between messages becomes a note line. */
-function threadPanel(rawAttrs, rawBody, own, userName) {
+function threadPanel(rawAttrs, rawBody, own, userName, names) {
     const t = parseAttrs(rawAttrs);
     let html = '';
     let first = null;
@@ -149,7 +177,7 @@ function threadPanel(rawAttrs, rawBody, own, userName) {
         if (!MESSAGE_TAGS.has(tag)) { note(m[3]); continue; }
         const a = parseAttrs(m[2]);
         a.app ||= t.app;
-        const w = writer(a, own, userName);
+        const w = writer(a, own, userName, names);
         first ??= { tag, a, outgoing: w.outgoing };
         html += bubble(tag, a, m[3], w, prevWho);
         prevWho = w.who;
@@ -177,6 +205,7 @@ export function renderArtifacts(mes, own = new Set(), userName = '') {
     if (!mes || !mes.includes('<')) return mes;
     let out = '';
     let last = 0;
+    const names = new Map(); // display names given so far in this message, by handle
     let open = null; // the panel being filled with messages that stand outside a <thread>: { key, who }
     const close = () => { if (open) { out += '</div>\n\n'; open = null; } };
 
@@ -188,20 +217,31 @@ export function renderArtifacts(mes, own = new Set(), userName = '') {
 
         if (tag === 'thread') {
             close();
-            out += between + threadPanel(rawAttrs, rawBody, own, userName);
+            out += between + threadPanel(rawAttrs, rawBody, own, userName, names);
             continue;
         }
 
         const a = parseAttrs(rawAttrs);
         const app = a.app || '';
-        const w = writer(a, own, userName);
+        const w = writer(a, own, userName, names);
 
+        if (tag === 'chat') {
+            close();
+            // `title` is the channel's own name. `channel` only says what kind it is ("party", "whisper"),
+            // which is all a game's chat command knows; the heading is then made from that.
+            const kind = (a.channel || '').replace(/^./, c => c.toUpperCase());
+            const heading = a.title || [kind, a.to && `to ${people(a.to).join(', ')}`].filter(Boolean).join(' ');
+            out += `${between}\n\n<div class="eye eye-chat">${span('eye-title', escapeHtml(heading))}${chatRows(rawBody, own)}</div>\n\n`;
+            continue;
+        }
         if (!MESSAGE_TAGS.has(tag)) {
             close();
             const classes = ['eye', `eye-${tag}`, w.outgoing ? 'eye-out' : 'eye-in', w.sender.cls, app && `eye-app-${normaliseName(app)}`];
             const recipient = span('eye-thread', span('eye-to', w.outgoing && a.to ? `To ${escapeHtml(people(a.to).join(', '))}` : ''));
             const title = span('eye-title', escapeHtml(a.subject || a.title || ''));
-            const body = tag === 'chat' ? chatRows(rawBody) : bodyHtml(rawBody);
+            // A system window may hold nested tags; it is then drawn as a hierarchy, not as lines.
+            const nested = tag === 'system_window' ? systemWindowBody(rawBody) : null;
+            const body = nested ?? bodyHtml(rawBody);
             out += `${between}\n\n<div class="${classes.filter(Boolean).join(' ')}"${w.sender.data}>${recipient}${w.head}${title}${body}</div>\n\n`;
             continue;
         }
@@ -248,7 +288,8 @@ export function collectContacts(mes) {
 
 // A recipient is one to three words. It counts when it starts with a capital letter or "@", or when it is
 // a name the chat already knows, so ordinary prose ("Text me when you land: ...") is left alone.
-const WORD = String.raw`[\p{L}\p{N}_.'’-]+`;
+// A word of a name: letters, digits, a little punctuation, and emoji (with their joiners and variation selectors).
+const WORD = String.raw`[\p{L}\p{N}\p{Extended_Pictographic}\u200D\uFE0F_.'’-]+`;
 const RECIPIENT = String.raw`(@?${WORD}(?: (?!(?:on|via|as) )${WORD}){0,2})`;
 const APP = String.raw`(?: (?:on|via) ((?!as )${WORD}(?: (?!as )${WORD})?))?`;
 const AS = String.raw`(?: as (@?${WORD}))?`;
@@ -331,13 +372,16 @@ function readTypedLine(word, head, body, canon) {
  *   Used when a line names an app but no "as".
  * @param {(name: string) => string|null} [canon] Returns a known name as the chat writes it, or null.
  */
-export function expandShorthand(mes, handles = {}, canon = () => null) {
+export function expandShorthand(mes, handles = {}, canon = () => null, info = {}) {
     if (!mes) return mes;
     const expand = text => text.replace(TYPED_LINE, (line, word, head, body) => {
         const read = readTypedLine(word, head, body, canon);
         if (!read) return line;
         const from = read.kind === 'dm' ? read.as || (read.app && handles[normaliseName(read.app)]) || '' : '';
         return buildTag(read.kind, { ...read, from }, read.body);
+    }).replace(TYPED_CHAT, (line, word, head, body) => {
+        const read = readTypedChat(word, head, info, canon);
+        return read ? chatTag(read, body, handles, info) : line;
     });
     // A line inside a tag that is already there belongs to that message, so only the text between tags is read.
     let out = '';
@@ -346,7 +390,7 @@ export function expandShorthand(mes, handles = {}, canon = () => null) {
         out += expand(mes.slice(last, match.index)) + match[0];
         last = match.index + match[0].length;
     }
-    return out + expand(mes.slice(last));
+    return mergeChatBlocks(out + expand(mes.slice(last)));
 }
 
 /**
@@ -354,14 +398,122 @@ export function expandShorthand(mes, handles = {}, canon = () => null) {
  * a tag the user pasted or quoted teaches nothing, so a contact can never be mistaken for the user.
  * @returns {{app: string, handle: string}[]} `app` is the normalised app name, or "" when no app was named.
  */
-export function typedHandles(mes, canon = () => null) {
+export function typedHandles(mes, canon = () => null, info = {}) {
     const found = [];
     if (!mes) return found;
     for (const [, word, head, body] of mes.matchAll(TYPED_LINE)) {
         const read = readTypedLine(word, head, body, canon);
         if (read?.as) found.push({ app: normaliseName(read.app), handle: read.as });
     }
+    for (const [, word, head] of mes.matchAll(TYPED_CHAT)) {
+        const read = readTypedChat(word, head, info, canon);
+        if (read?.as) found.push({ app: channelKey(read.title || read.channel), handle: read.as });
+    }
     return found;
+}
+
+// ---- Posting in a live chat ----
+
+// "chat: hi", "chat as Ace: hi", "chat Guild Hall: hi", "chat Guild Hall as Ace: hi"
+// A kind of game channel can also stand first, without "chat": "party: hi", "whisper Bob: hey".
+// The first word must be lowercase. A sentence starts with a capital, so "Party: four of us." is prose.
+const TYPED_CHAT = /^(chat|party|guild|yell|reply|whisper)(?: ([^:\n]{1,80}?))?:[ \t]*(\S.*)$/gm;
+
+/**
+ * Reads the heading of a typed chat line. Returns null when the line is prose.
+ * @param {string} word The line's first word: "chat", or a kind of game channel.
+ * @param {string} [head] What stands between that word and the colon.
+ */
+function readTypedChat(word, head, info, canon) {
+    const viaChat = word === 'chat';
+    const read = readChatHead(viaChat ? head ?? '' : `${word} ${head ?? ''}`, info);
+    if (!read) return null;
+    if (read.channel === 'whisper') {
+        // Who it is to follows the rule for any recipient, so "whisper it softly: ..." stays prose.
+        read.to = recipient(read.to, canon);
+        if (!read.to) return null;
+    }
+    // A line that opens with a kind must be about that kind, or a chat really called that:
+    // "Party of five: we set out" is prose.
+    if (!viaChat && !read.channel && !(info.channels ?? []).includes(read.title)) return null;
+    return read;
+}
+
+/** The name a chat name is remembered under, per channel. It shares the store of app handles, marked with "#". */
+export const channelKey = title => `#${normaliseName(title)}`;
+/** The key for the chat name last used in any channel. */
+export const ANY_CHANNEL = '#';
+
+/** The titles of the live chats in a message, in order. */
+export function channelsIn(mes) {
+    const found = [];
+    if (!mes || !mes.includes('<')) return found;
+    for (const [, rawTag, rawAttrs] of mes.matchAll(TAG_RE)) {
+        const title = rawTag.toLowerCase() === 'chat' && parseAttrs(rawAttrs).title;
+        if (title) found.push(title);
+    }
+    return found;
+}
+
+/**
+ * Works out which chat a line is for. With no channel named it is the chat most recently seen, which is
+ * the usual case: answering in a chat that is already open. A channel that is named must be one already
+ * in the chat, a kind of game channel ("party", "guild", "yell", "reply", "whisper to Bob"), or start with a
+ * capital letter or "#", so that prose ("Chat with Bob: went fine") is left alone. "in" before it is allowed.
+ * @param {string} head What stands between "chat" and the colon.
+ * @param {{channels?: string[]}} info The chat titles seen so far, oldest first.
+ * @param {boolean} [strict] False for a command, where the channel is given on purpose and taken as it is.
+ * @returns {{title?: string, channel?: string, to?: string, as: string}|null} Either a title, or a kind of channel.
+ */
+function readChatHead(head, info, strict = true) {
+    const titles = info.channels ?? [];
+    const known = name => titles.findLast(title => normaliseName(title) === normaliseName(name));
+    let channel = (head ?? '').trim();
+    let as = '';
+    if (!known(channel)) {
+        const m = channel.match(/^(?:(.*) )?as (\S(?:.*\S)?)$/i);
+        if (m) [channel, as] = [(m[1] ?? '').trim(), m[2]];
+    }
+    channel = channel.replace(/^in /i, '');
+    if (!known(channel)) {
+        // A kind of game channel, as the /p, /g, /y, /w and /r commands write: "party", "whisper to Bob".
+        const game = channel.match(/^(party|guild|yell|reply)$|^whisper(?: to)? (\S(?:.*\S)?)$/i);
+        if (game) return { channel: (game[1] ?? 'whisper').toLowerCase(), to: game[2] ?? '', as };
+    }
+    const title = !channel ? titles.at(-1)
+        : known(channel) ?? (!strict || /^(?:#|\p{Lu})/u.test(channel) ? channel : null);
+    return title ? { title, as } : null;
+}
+
+/**
+ * The tag for one line the user posts in a live chat, under the name they use there.
+ * A chat is named by its `title` when that is known. A game's chat command knows only the kind of
+ * channel, so it writes `channel` (and `to` for a whisper) and claims no title.
+ */
+function chatTag({ title, channel, to, as }, message, handles, info) {
+    const name = as || handles[channelKey(title || channel)] || handles[ANY_CHANNEL] || info.userName || 'Me';
+    const attrs = title ? `title="${attr(title)}"` : [`channel="${attr(channel)}"`, to && `to="${attr(to)}"`].filter(Boolean).join(' ');
+    return `<chat ${attrs}>${name}: ${message.trim()}</chat>`;
+}
+
+/** Lines posted one after another in the same chat become one block. */
+export function mergeChatBlocks(text) {
+    let out = '';
+    let last = 0;
+    let open = '';   // the opening tag of the chat block most recently seen
+    let closed = -1; // where that block's </chat> ended, in `out`
+    for (const m of text.matchAll(/<chat\b(?:[^>"']|"[^"]*"|'[^']*')*>|<\/chat>/gi)) {
+        const before = text.slice(last, m.index);
+        last = m.index + m[0].length;
+        if (m[0].startsWith('</')) { out += before + m[0]; closed = out.length; continue; }
+        if (m[0] === open && closed === out.length && before === '\n') {
+            out = out.slice(0, closed - '</chat>'.length) + '\n'; // drop the close and this open
+        } else {
+            out += before + m[0];
+        }
+        open = m[0];
+    }
+    return out + text.slice(last);
 }
 
 /** Every name a message's tags are from or to, as written. Used to recognise a recipient typed in lowercase. */
@@ -384,9 +536,19 @@ function takeToken(text) {
     return m ? [m[1] ?? m[2] ?? m[3], text.slice(m[0].length)] : ['', text];
 }
 
-const COMMAND_KINDS = { sms: 'sms', text: 'sms', dm: 'dm', email: 'email' };
-const COMMAND_LINE = /\r?\n(?=\/(?:sms|text|dm|email)\b)/i;
-const COMMAND_ARG = /^\s*(to|app|as|time|subject)=(?:"([^"]*)"|'([^']*)'|(\S+))\s*/i;
+// Every command has an "eye-" name. Short names are aliases where SillyTavern has no command of that name;
+// "chat" is left alone, since many of its own commands contain the word.
+// The one-letter names are the chat commands of online games: party, guild, yell, whisper, reply.
+const COMMAND_KINDS = {
+    sms: 'sms', text: 'sms', dm: 'dm', email: 'email', chat: 'chat',
+    party: 'party', guild: 'guild', yell: 'yell', whisper: 'whisper', reply: 'reply',
+    p: 'party', g: 'guild', y: 'yell', w: 'whisper', r: 'reply',
+};
+const COMMAND_NAME = '(?:eye-(?:sms|text|dm|email|chat|party|guild|yell|whisper|reply)|sms|text|dm|email|[pgywr])';
+const COMMAND_LINE = new RegExp(String.raw`\r?\n(?=\/${COMMAND_NAME}(?![\w-]))`, 'i');
+/** A game's chat commands. Each knows only the kind of channel; the model knows which chat that is. */
+const GAME_CHANNELS = new Set(['party', 'guild', 'yell', 'whisper', 'reply']);
+const COMMAND_ARG = /^\s*(to|app|as|time|subject|title)=(?:"([^"]*)"|'([^']*)'|(\S+))\s*/i;
 
 /**
  * SillyTavern ends a command only at a pipe, so when several commands are written one per line, the
@@ -400,7 +562,8 @@ export function splitCommands(kind, text, named = {}) {
     const [first, ...lines] = String(text ?? '').split(COMMAND_LINE);
     const commands = [{ kind, text: first, named }];
     for (const line of lines) {
-        const [, word, after] = line.match(/^\/(sms|text|dm|email)\b([\s\S]*)$/i);
+        const [, name, after] = line.match(new RegExp(String.raw`^\/(${COMMAND_NAME})(?![\w-])([\s\S]*)$`, 'i'));
+        const word = name.replace(/^eye-/i, '');
         const args = {};
         let rest = after;
         for (let m; (m = rest.match(COMMAND_ARG)); rest = rest.slice(m[0].length)) args[m[1].toLowerCase()] = m[2] ?? m[3] ?? m[4];
@@ -417,6 +580,9 @@ export function splitCommands(kind, text, named = {}) {
  *   /dm as=@alice chatter @Dave_88 hi    -> <dm from="@alice" to="@Dave_88" app="Chatter">hi</dm>
  *   /email subject="Invoice" Frank see attached        -> <email to="Frank" subject="Invoice">see attached</email>
  *   /sms time=22:29 Bob hey                            -> <sms to="Bob" time="10:29 PM">hey</sms>
+ *   /eye-chat as=Ace anyone on tonight?             -> <chat title="(the open chat)">Ace: anyone on tonight?</chat>
+ *   /p ready when you are                                -> <chat channel="party">Alice: ready when you are</chat>
+ *   /w Bob hey                                         -> <chat channel="whisper" to="Bob">Alice: hey</chat>
  * @param {'sms'|'dm'|'email'} kind
  * @param {string} text Everything after the command and its named arguments.
  * @param {{to?: string, app?: string, as?: string, subject?: string, time?: string}} [named] Named arguments; `to` and `app` replace the leading words.
@@ -424,7 +590,24 @@ export function splitCommands(kind, text, named = {}) {
  * @param {Record<string, string>} [handles] The user's remembered screenname per app.
  * @param {(name: string) => string|null} [canon] Returns a known name as the chat writes it, or null.
  */
-export function commandToTag(kind, text, named = {}, handles = {}, canon = () => null) {
+export function commandToTag(kind, text, named = {}, handles = {}, canon = () => null, info = {}) {
+    if (kind === 'chat') {
+        // /eye-chat [title=...] [as=...] message. With no title it is the chat most recently seen.
+        const message = String(text ?? '').trim();
+        const read = message && readChatHead(named.title ?? '', info, false);
+        return read ? chatTag({ ...read, as: named.as || read.as }, message, handles, info) : '';
+    }
+    if (GAME_CHANNELS.has(kind)) {
+        // /p, /g, /y message; /w Name message; /r message.
+        let message = String(text ?? '');
+        let to = '';
+        if (kind === 'whisper') {
+            [to, message] = takeToken(message.replace(/^\s*to\s+/i, ''));
+            if (!to) return '';
+            to = canon(to) ?? to;
+        }
+        return message.trim() ? chatTag({ channel: kind, to, as: named.as || '' }, message, handles, info) : '';
+    }
     let rest = String(text ?? '');
     let app = kind === 'dm' ? named.app || '' : '';
     if (kind === 'dm' && !app) [app, rest] = takeToken(rest);
