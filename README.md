@@ -58,7 +58,7 @@ A system window can be plain lines, or nested tags of the model's own naming. No
 
 - Each `<thread>` is drawn on its own panel, so two conversations never read as one.
 - A group that has a name carries it on the thread, as `<thread title="Book Club">` or `<thread app="Chatter" title="Book Club">`, and the name is drawn at the top of the panel. `name` and `display_name` are read the same way.
-- `app="sms"` means the phone's own texts: no app is shown, and a `<dm>` so marked is drawn as a text.
+- `<thread app="sms">` is a thread of phone texts, the same as a thread with no app: it holds `<sms>` messages and shows no app name. A `<dm>` marked `app="sms"` is tolerated and drawn as a text.
 - Messages outside a `<thread>` are grouped by who is in them.
 - `time` is optional on any message.
 - A plain line between the messages of a thread is drawn as a note.

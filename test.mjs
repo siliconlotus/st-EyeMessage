@@ -475,10 +475,11 @@ assert.equal(takeLegacy({ colors: {}, handles: {}, accounts: [], inject: false }
     assert.equal(drawn(wrapThreads(three)), drawn(three), 'a wrapped double text is drawn as it was before');
 
     // ---- A group conversation with a name; app="sms" is the phone's own texts ----
-    const club = '<thread app="sms" title="Book Club"><sms from="Bob">who is hosting</sms>\n<dm from="Carol">me</dm></thread>';
+    const club = '<thread app="sms" title="Book Club"><sms from="Bob">who is hosting</sms>\n<sms from="Carol">me</sms></thread>';
     const clubDrawn = renderArtifacts(club, own, 'Alice');
     assert.ok(clubDrawn.includes('<span class="eye-group">Book Club</span>'), 'the group name is in the heading');
-    assert.ok(clubDrawn.includes('eye-convo-sms') && !clubDrawn.includes('eye-app') && !clubDrawn.includes('eye-dm'), 'app="sms" shows no app, and a dm in it is a text');
+    assert.ok(clubDrawn.includes('eye-convo-sms') && !clubDrawn.includes('eye-app') && !clubDrawn.includes('eye-dm'), 'a thread of texts marked app="sms" shows no app');
+    assert.ok(!renderArtifacts('<thread app="sms"><dm from="Carol">me</dm></thread>').includes('eye-dm'), 'a dm written into one is tolerated and drawn as a text');
     assert.ok(renderArtifacts('<thread app="Chatter" name="Book Club"><dm from="@Dave_88">hi</dm></thread>').includes('<span class="eye-app">Chatter</span><span class="eye-group">Book Club</span>'), 'an app thread shows both; name is read as title');
     assert.ok(!renderArtifacts('<thread><sms from="Bob">hi</sms></thread>').includes('eye-group'), 'no title, no group name');
     assert.ok(renderArtifacts('<dm app="SMS" from="Bob">hi</dm>').includes('eye-convo-sms'), 'a loose dm marked sms is a text');
