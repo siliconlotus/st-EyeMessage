@@ -104,7 +104,7 @@ export function mergeStores(into, from) {
 export const copyStore = store => JSON.parse(JSON.stringify(complete(store)));
 
 /**
- * Before version 0.7 everything was kept for all chats at once. This takes that out of the extension's
+ * Early versions kept everything for all chats at once. This takes that out of the extension's
  * settings and returns it as a set, or null when there is nothing to move. The old injection choice is
  * dropped, not moved: it was off unless ticked, and injection is now on unless turned off.
  * @param {object} settings The extension's settings object; the old fields are deleted from it.

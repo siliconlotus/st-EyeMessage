@@ -3,7 +3,8 @@
 // Values may be quoted either way or, as HTML allows, not quoted at all: from=@alice.
 const ATTR_RE = /([\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/g;
 
-export const escapeHtml = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+// An "&" that already starts a character reference is left alone: a model may write "&lt;" in an attribute.
+export const escapeHtml = s => s.replace(/&(?!(?:[a-z]+|#\d+|#x[\da-f]+);)/gi, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 /** Reads the attributes of a tag into an object, keys in lowercase. */
 export function parseAttrs(text) {

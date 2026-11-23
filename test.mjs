@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { emptyStore, personaIn, learnHandle, forgetHandle, rememberNames, mergeStores, copyStore, takeLegacy } from './store.js';
 import { parseTree, systemWindowBody } from './system-window.js';
-import { channelsIn, channelKey, mergeChatBlocks, ANY_CHANNEL } from './render.js';
+import { channelsIn, channelKey, mergeChatBlocks, ANY_CHANNEL, conversationsIn, wrapThreads } from './render.js';
 import { renderArtifacts, expandShorthand, typedHandles, commandToTag, splitCommands, clockTime, namesIn, collectContacts, hueOf, normaliseName, autoHex, overrideRule, HUES, TAGS, TAG_LABELS, instructionFor, taughtByDefault } from './render.js';
 const INSTRUCTION = instructionFor(TAGS); // everything switched on
 
@@ -316,7 +316,7 @@ const known = new Map(namesIn('<thread><sms from="Bob">a</sms><sms to="Carol Jon
 const canon = n => known.get(normaliseName(n)) ?? null;
 assert.deepEqual([...known.values()], ['Bob', 'Carol Jones', '@Dave_88', '@Erin', 'Alice']);
 assert.equal(expandShorthand("text bob: i'll be there in 5\ntext bob: ...okay maybe more like 20", {}, canon),
-    '<sms to="Bob">i\'ll be there in 5</sms>\n<sms to="Bob">...okay maybe more like 20</sms>');
+    '<thread><sms to="Bob">i\'ll be there in 5</sms>\n<sms to="Bob">...okay maybe more like 20</sms></thread>', 'a double text is one thread');
 assert.equal(expandShorthand('text carol jones: see you at 9?', {}, canon), '<sms to="Carol Jones">see you at 9?</sms>');
 assert.equal(expandShorthand('dm dave_88 on chatter: hi', {}, canon), '<dm to="@Dave_88" app="Chatter">hi</dm>');
 assert.equal(expandShorthand('text me when: you land', {}, canon), 'text me when: you land', 'prose is still left alone');
@@ -423,5 +423,92 @@ assert.deepEqual(moved, { colors: { bob: '#112233' }, inject: true, tags: {}, pe
 assert.deepEqual(oldSettings, { shared: { x: true } }, 'the old fields are removed and nothing else is touched');
 assert.equal(takeLegacy(oldSettings, 'Alice'), null, 'there is nothing to move a second time');
 assert.equal(takeLegacy({ colors: {}, handles: {}, accounts: [], inject: false }, 'Alice'), null, 'an empty old set is not moved, and its old off-by-default choice is dropped');
+
+
+// ---- A line with no recipient answers the last conversation of its kind ----
+{
+    const own = new Set(['alice', 'alice1']);
+    const seen = [
+        '<thread><sms from="Bob">hi</sms>\n<sms from="Carol">hello</sms>\n<sms to="Bob, Carol">hey both</sms></thread>',
+        '<thread app="Chatter"><dm from="@Dave_88" display_name="Dave R.">where</dm></thread>',
+        '<email from="Frank Stone &lt;frank@example.com&gt;" to="Alice" subject="FWD: Re: Invoice">see below</email>',
+    ];
+    const convos = seen.flatMap(mes => conversationsIn(mes, own));
+    assert.deepEqual(convos, [
+        { kind: 'sms', to: 'Bob, Carol', app: '', subject: '' },
+        { kind: 'dm', to: '@Dave_88', app: 'Chatter', subject: '' },
+        { kind: 'email', to: 'Frank Stone &lt;frank@example.com&gt;', app: '', subject: 'FWD: Re: Invoice' },
+    ], 'a thread is one conversation with everyone else in it; an email answers its sender');
+    assert.deepEqual(conversationsIn('<sms to="Bob">mine</sms> <sms from="Alice" to="Erin">also mine</sms>', own).map(c => c.to), ['Bob', 'Erin'],
+        'the user\'s own message answers to who it was sent to');
+    const info = { last: Object.fromEntries(convos.map(c => [c.kind, c])) };
+    const handles = { chatter: '@alice1' };
+
+    assert.equal(expandShorthand('email: thanks', handles, undefined, info),
+        '<email to="Frank Stone &lt;frank@example.com&gt;" subject="Re: Invoice">thanks</email>', 'a bare email is a reply, with one Re:');
+    assert.equal(expandShorthand('email: Other | thanks', handles, undefined, info),
+        '<email to="Frank Stone &lt;frank@example.com&gt;" subject="Other">thanks</email>', 'a typed subject wins');
+    assert.equal(expandShorthand('text: on my way\nsms 10:29PM: nearly there', handles, undefined, info),
+        '<thread><sms to="Bob, Carol">on my way</sms>\n<sms to="Bob, Carol" time="10:29 PM">nearly there</sms></thread>', 'a bare text goes to the whole thread; a time may stand alone');
+    assert.equal(expandShorthand('dm: the cafe', handles, undefined, info),
+        '<dm from="@alice1" to="@Dave_88" app="Chatter">the cafe</dm>', 'a bare dm keeps the app and the user\'s handle on it');
+    assert.equal(expandShorthand('text Erin: hi\ntext: you there?', handles, undefined, info),
+        '<thread><sms to="Erin">hi</sms>\n<sms to="Erin">you there?</sms></thread>', 'a line with a recipient earlier in the same message is what a bare line answers');
+    assert.equal(expandShorthand('email Gina: Lunch | Friday?\nemail: or Saturday', handles, undefined, info),
+        '<email to="Gina" subject="Lunch">Friday?</email>\n<email to="Gina" subject="Re: Lunch">or Saturday</email>');
+    for (const prose of ['Email: sent this morning.', 'Text: none.', 'email: thanks']) {
+        const with_ = prose === 'email: thanks' ? {} : info;
+        assert.equal(expandShorthand(prose, handles, undefined, with_), prose, `left alone: ${prose}`);
+    }
+    assert.deepEqual(typedHandles('email: thanks\ndm: hi', undefined, info), [], 'a bare line teaches no handle');
+
+    // ---- Messages to the same people, one after another, become one thread ----
+    const three = '<sms to="Bob">a</sms>\n<sms to="Bob">b</sms>\n<sms to="Bob">c</sms>';
+    assert.equal(wrapThreads(three), `<thread>${three}</thread>`);
+    assert.equal(wrapThreads(wrapThreads(three)), wrapThreads(three), 'wrapping twice changes nothing');
+    assert.equal(wrapThreads('<sms to="Bob">a</sms>'), '<sms to="Bob">a</sms>', 'one message is left alone');
+    assert.equal(wrapThreads('Prose.\n<sms to="Bob">a</sms>\n<sms to="Bob">b</sms>\n<sms to="Carol">c</sms>\nMore.'),
+        'Prose.\n<thread><sms to="Bob">a</sms>\n<sms to="Bob">b</sms></thread>\n<sms to="Carol">c</sms>\nMore.', 'a different recipient is a different conversation');
+    assert.equal(wrapThreads('<sms to="Bob">a</sms>\nI waited.\n<sms to="Bob">b</sms>'), '<sms to="Bob">a</sms>\nI waited.\n<sms to="Bob">b</sms>', 'prose between keeps them apart');
+    assert.equal(wrapThreads('<dm to="@Dave_88" app="Chatter">a</dm>\n<dm to="@Dave_88" app="Other">b</dm>'), '<dm to="@Dave_88" app="Chatter">a</dm>\n<dm to="@Dave_88" app="Other">b</dm>', 'so does a different app');
+    const drawn = mes => renderArtifacts(mes, own, 'Alice').replace(/\n+/g, '\n').trim();
+    assert.equal(drawn(wrapThreads(three)), drawn(three), 'a wrapped double text is drawn as it was before');
+
+    // ---- A group conversation with a name; app="sms" is the phone's own texts ----
+    const club = '<thread app="sms" title="Book Club"><sms from="Bob">who is hosting</sms>\n<dm from="Carol">me</dm></thread>';
+    const clubDrawn = renderArtifacts(club, own, 'Alice');
+    assert.ok(clubDrawn.includes('<span class="eye-group">Book Club</span>'), 'the group name is in the heading');
+    assert.ok(clubDrawn.includes('eye-convo-sms') && !clubDrawn.includes('eye-app') && !clubDrawn.includes('eye-dm'), 'app="sms" shows no app, and a dm in it is a text');
+    assert.ok(renderArtifacts('<thread app="Chatter" name="Book Club"><dm from="@Dave_88">hi</dm></thread>').includes('<span class="eye-app">Chatter</span><span class="eye-group">Book Club</span>'), 'an app thread shows both; name is read as title');
+    assert.ok(!renderArtifacts('<thread><sms from="Bob">hi</sms></thread>').includes('eye-group'), 'no title, no group name');
+    assert.ok(renderArtifacts('<dm app="SMS" from="Bob">hi</dm>').includes('eye-convo-sms'), 'a loose dm marked sms is a text');
+    assert.deepEqual(conversationsIn(club, own), [{ kind: 'sms', to: 'Book Club', app: '', subject: '' }], 'a named group is answered by its name');
+    assert.deepEqual(conversationsIn('<thread app="Chatter" title="Book Club"><dm from="@Dave_88">hi</dm></thread>', own),
+        [{ kind: 'dm', to: 'Book Club', app: 'Chatter', subject: '' }]);
+    assert.equal(expandShorthand('text: i can host', handles, undefined, { last: { sms: conversationsIn(club, own)[0] } }), '<sms to="Book Club">i can host</sms>');
+    assert.equal(expandShorthand('dm Bob on sms: hi'), '<sms to="Bob">hi</sms>', 'a typed dm on sms is a text');
+    assert.equal(commandToTag('dm', 'sms Bob hi'), '<sms to="Bob">hi</sms>', 'and so is the command');
+    assert.ok(instructionFor(['sms']).includes('<thread title="Group name">'), 'the model is told a group can carry its name');
+
+    // The same from a command, which has no colon: the leading word is the recipient only when it reads as one.
+    const canon = name => ({ bob: 'Bob' })[name.toLowerCase()] ?? null;
+    const cmd = (kind, text, named = {}) => commandToTag(kind, text, named, handles, canon, info);
+    assert.equal(cmd('sms', 'on my way'), '<sms to="Bob, Carol">on my way</sms>', 'no recipient: a reply');
+    assert.equal(cmd('sms', 'to be honest i forgot'), '<sms to="Bob, Carol">to be honest i forgot</sms>', 'a reply keeps its leading "to"');
+    assert.equal(cmd('sms', 'bob hey'), '<sms to="Bob">hey</sms>', 'a known name is the recipient');
+    assert.equal(cmd('sms', 'Zed hey'), '<sms to="Zed">hey</sms>', 'so is a capitalised one');
+    assert.equal(cmd('sms', '"zed" hey'), '<sms to="zed">hey</sms>', 'and a quoted one');
+    assert.equal(cmd('sms', 'hey', { to: 'zed' }), '<sms to="zed">hey</sms>', 'to= is always the recipient');
+    assert.equal(cmd('sms', 'hey', { time: '22:29' }), '<sms to="Bob, Carol" time="10:29 PM">hey</sms>');
+    assert.equal(cmd('dm', 'the cafe'), '<dm from="@alice1" to="@Dave_88" app="Chatter">the cafe</dm>', 'a dm reply keeps the app and handle');
+    assert.equal(cmd('dm', 'ok'), '<dm from="@alice1" to="@Dave_88" app="Chatter">ok</dm>', 'a one-word dm reply');
+    assert.equal(cmd('dm', 'chatter @Erin hi'), '<dm from="@alice1" to="@Erin" app="Chatter">hi</dm>', 'a dm with a recipient is unchanged');
+    assert.equal(cmd('email', 'thanks, got it'), '<email to="Frank Stone &lt;frank@example.com&gt;" subject="Re: Invoice">thanks, got it</email>');
+    assert.equal(cmd('email', 'thanks', { subject: 'Other' }), '<email to="Frank Stone &lt;frank@example.com&gt;" subject="Other">thanks</email>');
+    assert.equal(commandToTag('sms', 'on my way', {}, handles, canon, {}), '<sms to="on">my way</sms>', 'with nothing to answer, the first word is the recipient');
+    assert.ok(renderArtifacts('<email from="Frank Stone &lt;frank@example.com&gt;">x</email>').includes('Frank Stone &lt;frank@example.com&gt;'),
+        'a character reference in an attribute is not escaped twice');
+    assert.ok(renderArtifacts('<email from="A & B">x</email>').includes('A &amp; B'), 'a plain ampersand still is');
+}
 
 console.log('ok: all checks passed');

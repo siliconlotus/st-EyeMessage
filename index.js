@@ -2,7 +2,7 @@
 // <system_window>) as styled objects in chat. The tags themselves are listed in render.js.
 // The chat file and the prompt keep the plain tags; only the display changes. The look lives in style.css.
 import {
-    renderArtifacts, expandShorthand, typedHandles, commandToTag, splitCommands, collectContacts, namesIn, channelsIn, channelKey, mergeChatBlocks, ANY_CHANNEL, normaliseName, autoHex, overrideRule,
+    renderArtifacts, expandShorthand, typedHandles, conversationsIn, commandToTag, splitCommands, collectContacts, namesIn, channelsIn, channelKey, mergeChatBlocks, wrapThreads, ANY_CHANNEL, normaliseName, autoHex, overrideRule,
     instructionFor, taughtByDefault, TAGS, TAG_LABELS,
 } from './render.js';
 import { emptyStore, complete, personaIn, learnHandle, forgetHandle, rememberNames, mergeStores, copyStore, takeLegacy } from './store.js';
@@ -69,11 +69,19 @@ function knownNames() {
     return name => known.get(normaliseName(name)) ?? null;
 }
 
-/** What a line posted in a live chat needs to know: the chats seen so far, oldest first, and the persona's name. */
-const chatInfo = () => ({
-    channels: SillyTavern.getContext().chat.flatMap(message => channelsIn(message?.mes)),
-    userName: personaName(),
-});
+/**
+ * What a typed line needs to know about the chat: the live chats seen so far, oldest first, the persona's
+ * name, and the most recent conversation of each kind, which a line with no recipient answers.
+ */
+const chatInfo = () => {
+    const { chat } = SillyTavern.getContext();
+    const own = ownNames();
+    return {
+        channels: chat.flatMap(message => channelsIn(message?.mes)),
+        userName: personaName(),
+        last: Object.fromEntries(chat.flatMap(message => conversationsIn(message?.mes, own)).map(c => [c.kind, c])),
+    };
+};
 
 /** Remembers the name the user posted under in a live chat: for that channel, and as the one last used. */
 const learnChatName = (store, title, name) => {
@@ -195,10 +203,12 @@ function registerCommands() {
                 edit(s => learnChatName(s, title, command.named.as));
             }
             tags.push(tag);
+            // A command with no recipient on a later line answers this one.
+            Object.assign(info.last, Object.fromEntries(conversationsIn(tag, ownNames()).map(c => [c.kind, c])));
         }
         if (!tags.length) return '';
 
-        const written = mergeChatBlocks(tags.join('\n'));
+        const written = wrapThreads(mergeChatBlocks(tags.join('\n')));
         const box = /** @type {HTMLTextAreaElement} */ (document.getElementById('send_textarea'));
         if (box) {
             box.value = box.value.trim() ? `${box.value.replace(/\s+$/, '')}\n${written}` : written;
@@ -208,20 +218,22 @@ function registerCommands() {
         return written;
     };
 
+    const REPLY_HELP = 'The first word is read as the recipient when it is a name already in the chat\'s messages, starts with a capital letter or @, or is in quotes. '
+        + 'Otherwise the whole text is a reply to the most recent conversation of this kind; with none to answer, the first word is the recipient.';
     const time = named('time', 'when it was sent, e.g. 10:29PM or 22:29');
     const as = named('as', 'the name you post under; remembered once given');
     // [kind, short names, unnamed arguments, named arguments, what it does, examples]
     const commands = [
-        ['sms', ['sms', 'text', 'eye-text'], [text('recipient, then the message')], [time, named('to', 'recipient, when the name has spaces')],
-            'Writes a phone text into the message box.',
-            ['/sms Bob I\'m gonna be late', '/text "Carol Jones" see you at 9?', '/sms time=10:29PM Bob hey']],
-        ['dm', ['dm'], [text('app, then recipient(s) separated by commas, then the message')],
-            [named('as', 'your handle on this app; remembered once given'), time, named('app', 'app, when the name has spaces'), named('to', 'recipient(s), when a name has spaces')],
-            'Writes a direct message inside an app into the message box. Several recipients make a group thread.',
-            ['/dm chatter @Dave_88 on my way', '/dm chatter @Dave_88,@Erin anyone free tonight', '/dm as=@alice chatter @Dave_88 on my way']],
-        ['email', ['email'], [text('recipient, then the message')], [named('subject', 'subject line'), time, named('to', 'recipient, when the name has spaces')],
-            'Writes an email into the message box.',
-            ['/email subject="Invoice" Frank see attached']],
+        ['sms', ['sms', 'text', 'eye-text'], [text('recipient, then the message; or only the message, to reply to the last text')], [time, named('to', 'recipient, when the first word would not be read as one')],
+            `Writes a phone text into the message box. ${REPLY_HELP}`,
+            ['/sms Bob I\'m gonna be late', '/text "Carol Jones" see you at 9?', '/sms time=10:29PM Bob hey', '/sms on my way', '/sms to=bob hey']],
+        ['dm', ['dm'], [text('app, then recipient(s) separated by commas, then the message; or only the message, to reply to the last direct message')],
+            [named('as', 'your handle on this app; remembered once given'), time, named('app', 'app, when the name has spaces'), named('to', 'recipient(s), when the word after the app would not be read as one')],
+            `Writes a direct message inside an app into the message box. Several recipients make a group thread. ${REPLY_HELP}`,
+            ['/dm chatter @Dave_88 on my way', '/dm chatter @Dave_88,@Erin anyone free tonight', '/dm as=@alice chatter @Dave_88 on my way', '/dm the cafe']],
+        ['email', ['email'], [text('recipient, then the message; or only the message, to reply to the last email')], [named('subject', 'subject line'), time, named('to', 'recipient, when the first word would not be read as one')],
+            `Writes an email into the message box. ${REPLY_HELP}`,
+            ['/email subject="Invoice" Frank see attached', '/email thanks, got it']],
         ['chat', [], [text('the message')], [as, named('title', 'the channel; left out, it is the live chat most recently seen')],
             'Writes a line you post in a live chat into the message box.',
             ['/eye-chat anyone on tonight?', '/eye-chat as=Ace anyone on tonight?', '/eye-chat title="Guild Hall" selling ore']],

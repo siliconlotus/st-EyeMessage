@@ -111,7 +111,8 @@
 .custom-eye-convo > .custom-eye-same { margin-top: -0.15em; }
 .custom-eye-same .custom-eye-head { display: none; }
 
-/* The line at the top of a panel: the app's name, and on a conversation you open, who it is to.
+/* The line at the top of a panel: the app's name, the group's name when it has one, and on a
+   conversation you open, who it is to.
    An email you send carries the same "To" line. */
 .custom-eye-thread {
     font-size: 0.74em;
@@ -134,7 +135,10 @@
     border-radius: 50%;
     background: var(--eye-app-accent, currentColor);
 }
-.custom-eye-app + .custom-eye-to::before { content: " · "; }
+.custom-eye-group { font-weight: 600; }
+.custom-eye-app + .custom-eye-group::before,
+.custom-eye-app + .custom-eye-to::before,
+.custom-eye-group + .custom-eye-to::before { content: " · "; font-weight: 400; }
 
 /* ---- Live chat: a stream chat, a guild channel, a comment feed ---- */
 .custom-eye-chat {

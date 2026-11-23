@@ -16,7 +16,7 @@ It needs a SillyTavern build that has the message formatter hook (`getContext().
 | --- | --- |
 | `<sms from="Contact name">` | a phone text |
 | `<dm app="App name" from="@handle" display_name="Display name">` | a direct message inside an app |
-| `<thread>` | one conversation: the texts or app messages inside it share a panel |
+| `<thread>` | one conversation: the texts or app messages inside it share a panel. `app` names its app once; `title` names a group |
 | `<chat title="Channel or stream">` | a live text chat with many participants, one `Name: message` per line |
 | `<email from="Sender" subject="Subject line">` | an email |
 | `<letter from="Sender">` | anything on paper |
@@ -57,6 +57,8 @@ A system window can be plain lines, or nested tags of the model's own naming. No
 - Repeated tags are a list, and any other attribute is shown beside the item.
 
 - Each `<thread>` is drawn on its own panel, so two conversations never read as one.
+- A group that has a name carries it on the thread, as `<thread title="Book Club">` or `<thread app="Chatter" title="Book Club">`, and the name is drawn at the top of the panel. `name` and `display_name` are read the same way.
+- `app="sms"` means the phone's own texts: no app is shown, and a `<dm>` so marked is drawn as a text.
 - Messages outside a `<thread>` are grouped by who is in them.
 - `time` is optional on any message.
 - A plain line between the messages of a thread is drawn as a note.
@@ -84,7 +86,21 @@ email Frank: Invoice | see attached
 - The recipient must start with a capital letter or `@`, or be a name already used in the chat's messages. Anything else is left alone as prose.
 - A time may follow the recipient. `10:29PM` and `22:29` are the same; with no am or pm it is read as a 24-hour clock.
 - `as @handle` is remembered as one of your accounts and becomes the default for that app. Messages from any of your accounts are drawn as sent.
-- Two lines to the same person draw as one conversation.
+- Lines to the same person, one after another, are put in one `<thread>` when you send, so a double text is one conversation.
+
+Leave the recipient out to reply to the most recent conversation of that kind:
+
+```
+email: thanks, got it
+text: on my way
+text 10:29PM: nearly there
+dm: the cafe
+```
+
+- A text or app message goes to everyone else in that thread, on the same app and from your account there. A thread that has a `title` is answered by that name: `to="Book Club"`.
+- An email goes to the sender of the last one, with its subject as `Re: …`. `email: New subject | message` sets your own.
+- A recipient named earlier in the same message is the one a bare line after it answers.
+- The word must be in lowercase, and there must be a conversation of that kind to answer. Otherwise the line is left alone as prose.
 
 To post in a live chat yourself:
 
@@ -131,6 +147,16 @@ Or use a slash command, which writes the tag into the message box without sendin
 /p ready when you are
 /w Bob hey
 ```
+
+Leave the recipient out to reply to the most recent conversation of that kind, as with a typed line:
+
+```
+/sms on my way
+/dm the cafe
+/email thanks, got it
+```
+
+A command has no colon to mark where the recipient ends, so the first word is read as the recipient when it is in quotes or follows the rule for a typed line: a name already in the chat's messages, or one that starts with a capital letter or `@`. Anything else makes the whole text a reply. The tag lands in the message box, so a wrong guess is there to see before you send. `to=` settles it either way: `/sms to=bob hey` for someone new typed in lowercase, `/sms to=Bob Running late` for a reply that starts with a capital. With no conversation to answer, the first word is the recipient.
 
 Several commands, one per line, are converted together. Several recipients make a group thread. Quote a name that has spaces: `/sms "Carol Jones" see you at 9?`. The game-chat commands write the kind of channel and no title, as `<chat channel="party">`, since they cannot know what the scene calls it; the model works out which chat that is.
 

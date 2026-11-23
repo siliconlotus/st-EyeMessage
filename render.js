@@ -62,7 +62,7 @@ export function instructionFor(tags = TAGS.filter(taughtByDefault)) {
         `[Diegetic Artifacts: Tags]
 When someone in the scene reads or looks at a written or on-screen thing, give its words inside one of these tags, where a blockquote would otherwise go. The interface draws the object. Write no HTML, styling or markdown for it.`,
         taught.map(tag => `- \`${TAG_GUIDE[tag][0]}\` ${TAG_GUIDE[tag][1]}`).join('\n'),
-        messages && `Texts and app messages go inside \`<thread>\`, one \`<thread>\` per conversation, with its messages in order. A different person or group is a different thread. An app thread can name its app once, as \`<thread app="App name">\`. A message can optionally carry a timestamp, as \`time="9:41 PM"\`. A plain line between messages in a thread is shown as a note, such as a date or \`Seen 2:14 PM\`.`,
+        messages && `Texts and app messages go inside \`<thread>\`, one \`<thread>\` per conversation, with its messages in order. A different person or group is a different thread. An app thread can name its app once, as \`<thread app="App name">\`. A group conversation that has a name carries it as \`<thread title="Group name">\`. A message can optionally carry a timestamp, as \`time="9:41 PM"\`. A plain line between messages in a thread is shown as a note, such as a date or \`Seen 2:14 PM\`.`,
         messages && `{{user}}'s own sent messages appear in the history as \`<sms to="Recipient">\` or \`<dm to="Recipient">\`, with {{user}}'s own handle as \`from\` where one is used.`,
         `Inside the tag are only the object's own words, in its writer's voice and habits. Narration and reactions stay outside it, in plain prose. A turn in which nobody reads anything uses none of these tags.`,
         has('sms') && MESSAGES_EXAMPLE,
@@ -113,6 +113,27 @@ function chatRows(body, own = new Set()) {
 
 const MESSAGE_TAGS = new Set(['sms', 'dm']);
 
+/** An app value that only says "the phone's own texts": app="sms". */
+const isPhone = app => /^(?:sms|text|texts)$/i.test((app || '').trim());
+/** The name of a group conversation, given on its <thread>. Models write the attribute several ways. */
+const threadTitle = t => t.title || t.name || t.display_name || t['display-name'] || '';
+
+/**
+ * A message's tag and attributes. The app may be given once on the <thread>. An app of "sms" is read as
+ * what it means: a phone text, which has no app, so <dm app="sms"> is an <sms>.
+ * @returns {[string, Record<string, string>]}
+ */
+function readMessage(rawTag, rawAttrs, thread = {}) {
+    const a = parseAttrs(rawAttrs);
+    let tag = rawTag.toLowerCase();
+    a.app ||= thread.app;
+    if (isPhone(a.app)) {
+        a.app = '';
+        if (tag === 'dm') tag = 'sms';
+    }
+    return [tag, a];
+}
+
 const bodyHtml = raw => `<span class="eye-body">${inlineMarks(raw.trim()).replace(/\r?\n/g, '<br>')}</span>`;
 const noteHtml = raw => span('eye-note', inlineMarks(raw.trim()).replace(/\r?\n/g, '<br>'));
 
@@ -155,9 +176,13 @@ function bubble(tag, a, rawBody, w, prevWho) {
     return `<span class="${classes.filter(Boolean).join(' ')}"${w.sender.data}>${w.head}${bodyHtml(rawBody)}</span>`;
 }
 
-/** The start of a conversation panel. Its top line names the app and, on a conversation the user opens, who it is to. */
-function panelOpen(tag, app, to) {
-    const line = span('eye-app', escapeHtml(app)) + span('eye-to', to ? `To ${escapeHtml(people(to).join(', '))}` : '');
+/**
+ * The start of a conversation panel. Its top line names the app, the group when the conversation has a
+ * name and, on a conversation the user opens, who it is to.
+ */
+function panelOpen(tag, app, to, title = '') {
+    const line = span('eye-app', escapeHtml(app)) + span('eye-group', escapeHtml(title))
+        + span('eye-to', to ? `To ${escapeHtml(people(to).join(', '))}` : '');
     const classes = ['eye-convo', `eye-convo-${tag}`, app && `eye-app-${normaliseName(app)}`];
     return `<div class="${classes.filter(Boolean).join(' ')}">${span('eye-thread', line)}`;
 }
@@ -173,10 +198,8 @@ function threadPanel(rawAttrs, rawBody, own, userName, names) {
     for (const m of rawBody.matchAll(TAG_RE)) {
         note(rawBody.slice(last, m.index));
         last = m.index + m[0].length;
-        const tag = m[1].toLowerCase();
-        if (!MESSAGE_TAGS.has(tag)) { note(m[3]); continue; }
-        const a = parseAttrs(m[2]);
-        a.app ||= t.app;
+        if (!MESSAGE_TAGS.has(m[1].toLowerCase())) { note(m[3]); continue; }
+        const [tag, a] = readMessage(m[1], m[2], t);
         const w = writer(a, own, userName, names);
         first ??= { tag, a, outgoing: w.outgoing };
         html += bubble(tag, a, m[3], w, prevWho);
@@ -184,8 +207,8 @@ function threadPanel(rawAttrs, rawBody, own, userName, names) {
     }
     note(rawBody.slice(last));
     if (!html) return '';
-    const app = t.app || first?.a.app || '';
-    return `\n\n${panelOpen(first?.tag ?? (app ? 'dm' : 'sms'), app, first?.outgoing ? first.a.to : '')}${html}</div>\n\n`;
+    const app = isPhone(t.app) ? '' : t.app || first?.a.app || '';
+    return `\n\n${panelOpen(first?.tag ?? (app ? 'dm' : 'sms'), app, first?.outgoing ? first.a.to : '', threadTitle(t))}${html}</div>\n\n`;
 }
 
 /**
@@ -211,17 +234,16 @@ export function renderArtifacts(mes, own = new Set(), userName = '') {
 
     for (const match of mes.matchAll(TAG_RE)) {
         const [whole, rawTag, rawAttrs, rawBody] = match;
-        const tag = rawTag.toLowerCase();
         const between = mes.slice(last, match.index);
         last = match.index + whole.length;
 
-        if (tag === 'thread') {
+        if (rawTag.toLowerCase() === 'thread') {
             close();
             out += between + threadPanel(rawAttrs, rawBody, own, userName, names);
             continue;
         }
 
-        const a = parseAttrs(rawAttrs);
+        const [tag, a] = readMessage(rawTag, rawAttrs);
         const app = a.app || '';
         const w = writer(a, own, userName, names);
 
@@ -295,7 +317,8 @@ const APP = String.raw`(?: (?:on|via) ((?!as )${WORD}(?: (?!as )${WORD})?))?`;
 const AS = String.raw`(?: as (@?${WORD}))?`;
 // keyword, then everything up to the colon that ends the heading, then the message.
 // The heading may hold one clock colon ("Bob 10:29PM:").
-const TYPED_LINE = /^(text|sms|dm|e-?mail) (?:to )?([^:\n]{1,80}?(?::\d{2}[^:\n]{0,4})?):[ \t]*(\S.*)$/gimu;
+// With no heading at all ("email: thanks") the line answers the most recent conversation of its kind.
+const TYPED_LINE = /^(text|sms|dm|e-?mail)(?: (?:to )?([^:\n]{1,80}?(?::\d{2}[^:\n]{0,4})?))?:[ \t]*(\S.*)$/gimu;
 const HEAD_PLAIN = new RegExp(`^${RECIPIENT}$`, 'u');
 // Only "dm" takes an app and a screenname, so "Text Bob on Monday: ..." stays prose.
 const HEAD_DM = new RegExp(`^${RECIPIENT}${APP}${AS}$`, 'u');
@@ -322,6 +345,8 @@ export function clockTime(text) {
 
 /** Writes a message tag from its parts. Empty parts are left out. */
 function buildTag(kind, { from, to, app, subject, time }, body) {
+    // "dm Bob on sms: ..." is a phone text.
+    if (kind === 'dm' && isPhone(app)) [kind, app, from] = ['sms', '', ''];
     const attrs = [
         from && `from="${attr(from)}"`,
         `to="${attr(to)}"`,
@@ -332,27 +357,73 @@ function buildTag(kind, { from, to, app, subject, time }, body) {
     return `<${kind} ${attrs}>${body.trim()}</${kind}>`;
 }
 
+/** The subject of a reply to an email: the same subject under one "Re:". */
+const replySubject = prev => prev.subject ? `Re: ${prev.subject.replace(/^(?:(?:re|fwd?)\s*:\s*)+/i, '')}` : '';
+
 /**
  * Reads one typed line. Returns null when it is prose.
  * @returns {{kind: string, to: string, app: string, as: string, time: string, subject: string, body: string}|null}
  */
-function readTypedLine(word, head, body, canon) {
+function readTypedLine(word, head = '', body, canon, last = {}) {
     const kind = /^(?:text|sms)$/i.test(word) ? 'sms' : /^dm$/i.test(word) ? 'dm' : 'email';
-    // A clock time at the end of the heading: "Bob 10:29PM", "Bob at 22:29".
+    // A clock time at the end of the heading: "Bob 10:29PM", "Bob at 22:29". Alone, it is a reply with a time.
     let time = '';
     const timed = head.match(HEAD_TIME);
     if (timed && clockTime(timed[2])) [head, time] = [timed[1], clockTime(timed[2])];
+    else if (clockTime(head)) [head, time] = ['', clockTime(head)];
 
-    const m = head.trim().match(kind === 'dm' ? HEAD_DM : HEAD_PLAIN);
-    // A bare number is neither a time nor part of a name ("text Bob 10: ..."), so such a line is left alone.
-    const to = m && !/\s\d+$/.test(m[1]) && recipient(m[1], canon);
-    if (!to) return null;
     let subject = '';
     if (kind === 'email') {
         const split = body.match(/^([^|\n]+?)[ \t]*\|[ \t]*(\S.*)$/);
         if (split) [subject, body] = [split[1], split[2]];
     }
+    if (!head) {
+        // A reply: to whoever the last conversation of this kind was with. The word must be lowercase, so
+        // "Email: sent this morning." is prose, and with nothing to answer the line is left alone.
+        const prev = word === word.toLowerCase() && last[kind];
+        if (!prev?.to) return null;
+        subject ||= replySubject(prev);
+        return { kind, to: prev.to, app: prev.app || '', as: '', time, subject, body };
+    }
+    const m = head.trim().match(kind === 'dm' ? HEAD_DM : HEAD_PLAIN);
+    // A bare number is neither a time nor part of a name ("text Bob 10: ..."), so such a line is left alone.
+    const to = m && !/\s\d+$/.test(m[1]) && recipient(m[1], canon);
+    if (!to) return null;
     return { kind, to, app: appName(m[2]), as: m[3] || '', time, subject, body };
+}
+
+/**
+ * The conversations in a message's tags, in order: what a bare reply ("email: thanks") needs to answer one.
+ * `to` is everyone in it but the user, or the group's name when the thread has one. A <thread> is one
+ * conversation; so is a message outside one.
+ * @param {string} mes Message text.
+ * @param {Set<string>} [own] The user's own names and screennames, normalised.
+ * @returns {{kind: string, to: string, app: string, subject: string}[]}
+ */
+export function conversationsIn(mes, own = new Set()) {
+    const found = [];
+    if (!mes || !mes.includes('<')) return found;
+    const REPLYABLE = new Set(['sms', 'dm', 'email']);
+    // The other side of one message: its sender, or on the user's own message, who it was to.
+    const others = a => (a.from && !own.has(normaliseName(a.from)) ? [a.from] : people(a.to)).filter(n => !own.has(normaliseName(n)));
+    const add = (kind, names, app, subject) => {
+        const unique = names.filter((n, i) => names.findIndex(x => normaliseName(x) === normaliseName(n)) === i);
+        if (unique.length) found.push({ kind, to: unique.join(', '), app: app || '', subject: subject || '' });
+    };
+    for (const [, rawTag, rawAttrs, rawBody] of mes.matchAll(TAG_RE)) {
+        if (rawTag.toLowerCase() === 'thread') {
+            const t = parseAttrs(rawAttrs);
+            const inside = [...rawBody.matchAll(TAG_RE)].filter(m => MESSAGE_TAGS.has(m[1].toLowerCase())).map(m => readMessage(m[1], m[2], t));
+            if (!inside.length) continue;
+            // A group that has a name is answered by that name.
+            const to = threadTitle(t) ? [threadTitle(t)] : inside.flatMap(([, a]) => others(a));
+            add(inside[0][0], to, inside.find(([, a]) => a.app)?.[1].app);
+            continue;
+        }
+        const [tag, a] = readMessage(rawTag, rawAttrs);
+        if (REPLYABLE.has(tag)) add(tag, others(a), a.app, a.subject);
+    }
+    return found;
 }
 
 /**
@@ -366,17 +437,23 @@ function readTypedLine(word, head, body, canon) {
  *   dm Dave on Chatter: 2pm works                     -> <dm to="Dave" app="Chatter">2pm works</dm>
  *   dm Dave on Chatter as @alice: 2pm works    -> <dm from="@alice" to="Dave" app="Chatter">2pm works</dm>
  *   email Frank: Invoice | see attached                 -> <email to="Frank" subject="Invoice">see attached</email>
+ *   email: thanks                                       -> a reply to the last email: <email to="Frank" subject="Re: Invoice">thanks</email>
  * A line that is already a tag does not match, so running this twice changes nothing.
  * @param {string} mes Message text.
  * @param {Record<string, string>} [handles] The user's screenname per app, keyed by the app's normalised name.
  *   Used when a line names an app but no "as".
  * @param {(name: string) => string|null} [canon] Returns a known name as the chat writes it, or null.
+ * @param {{channels?: string[], userName?: string, last?: object}} [info] What the chat holds so far: its live
+ *   chats, the persona name, and `last`, the most recent conversation of each kind (see `conversationsIn`).
  */
 export function expandShorthand(mes, handles = {}, canon = () => null, info = {}) {
     if (!mes) return mes;
+    // A line with a recipient becomes what a bare line after it in the same message answers.
+    const last = { ...info.last };
     const expand = text => text.replace(TYPED_LINE, (line, word, head, body) => {
-        const read = readTypedLine(word, head, body, canon);
+        const read = readTypedLine(word, head, body, canon, last);
         if (!read) return line;
+        last[read.kind] = read;
         const from = read.kind === 'dm' ? read.as || (read.app && handles[normaliseName(read.app)]) || '' : '';
         return buildTag(read.kind, { ...read, from }, read.body);
     }).replace(TYPED_CHAT, (line, word, head, body) => {
@@ -385,12 +462,12 @@ export function expandShorthand(mes, handles = {}, canon = () => null, info = {}
     });
     // A line inside a tag that is already there belongs to that message, so only the text between tags is read.
     let out = '';
-    let last = 0;
+    let at = 0;
     for (const match of mes.matchAll(TAG_RE)) {
-        out += expand(mes.slice(last, match.index)) + match[0];
-        last = match.index + match[0].length;
+        out += expand(mes.slice(at, match.index)) + match[0];
+        at = match.index + match[0].length;
     }
-    return mergeChatBlocks(out + expand(mes.slice(last)));
+    return wrapThreads(mergeChatBlocks(out + expand(mes.slice(at))));
 }
 
 /**
@@ -516,6 +593,36 @@ export function mergeChatBlocks(text) {
     return out + text.slice(last);
 }
 
+/**
+ * Texts or app messages from the same writer to the same people, one line after another, are put in one
+ * <thread>: a double text is one conversation, written the way the model is told a conversation is written.
+ * A message alone is left as it is, and so is anything already in a <thread>.
+ */
+export function wrapThreads(text) {
+    let out = '';
+    let at = 0;
+    let run = null; // the messages being gathered: { key, start, count }; `start` is where the first begins in `out`
+    const close = () => {
+        if (run?.count > 1) out = `${out.slice(0, run.start)}<thread>${out.slice(run.start)}</thread>`;
+        run = null;
+    };
+    for (const m of text.matchAll(TAG_RE)) {
+        const between = text.slice(at, m.index);
+        at = m.index + m[0].length;
+        const a = parseAttrs(m[2]);
+        const tag = m[1].toLowerCase();
+        const key = MESSAGE_TAGS.has(tag) ? [tag, a.from, a.to, a.app].map(x => normaliseName(x || '')).join('|') : null;
+        if (!(run && key === run.key && between === '\n')) {
+            close();
+            if (key) run = { key, start: out.length + between.length, count: 0 };
+        }
+        if (run) run.count++;
+        out += between + m[0];
+    }
+    close();
+    return out + text.slice(at);
+}
+
 /** Every name a message's tags are from or to, as written. Used to recognise a recipient typed in lowercase. */
 export function namesIn(mes) {
     const found = [];
@@ -580,6 +687,7 @@ export function splitCommands(kind, text, named = {}) {
  *   /dm as=@alice chatter @Dave_88 hi    -> <dm from="@alice" to="@Dave_88" app="Chatter">hi</dm>
  *   /email subject="Invoice" Frank see attached        -> <email to="Frank" subject="Invoice">see attached</email>
  *   /sms time=22:29 Bob hey                            -> <sms to="Bob" time="10:29 PM">hey</sms>
+ *   /sms on my way                                     -> a reply to the last text: <sms to="Bob">on my way</sms>
  *   /eye-chat as=Ace anyone on tonight?             -> <chat title="(the open chat)">Ace: anyone on tonight?</chat>
  *   /p ready when you are                                -> <chat channel="party">Alice: ready when you are</chat>
  *   /w Bob hey                                         -> <chat channel="whisper" to="Bob">Alice: hey</chat>
@@ -608,19 +716,34 @@ export function commandToTag(kind, text, named = {}, handles = {}, canon = () =>
         }
         return message.trim() ? chatTag({ channel: kind, to, as: named.as || '' }, message, handles, info) : '';
     }
-    let rest = String(text ?? '');
+    const whole = String(text ?? '');
+    let rest = whole;
     let app = kind === 'dm' ? named.app || '' : '';
     if (kind === 'dm' && !app) [app, rest] = takeToken(rest);
     let to = named.to || '';
+    const quoted = /^\s*(?:to\s+)?["']/i.test(rest);
     if (!to) [to, rest] = takeToken(rest.replace(/^\s*to\s+/i, ''));
+    let subject = kind === 'email' ? named.subject || '' : '';
+
+    // With no to=, the leading word is the recipient when it reads as one: quoted, or by the rule for a typed
+    // line (a known name, a capital letter or "@"). When it does not and there is a conversation of this kind
+    // to answer, the whole text is a reply to it: "/sms on my way".
+    const prev = info.last?.[kind];
+    const names = people(to);
+    if (prev && !named.to && !quoted && !(names.length && names.every(n => recipient(n, canon)))) {
+        [to, rest, app] = [prev.to, whole, named.app || prev.app];
+        subject ||= replySubject(prev);
+    } else {
+        to = names.map(n => canon(n) ?? n).join(', ');
+    }
     const body = rest.trim();
-    if (!people(to).length || !body || (kind === 'dm' && !app)) return '';
+    if (!to || !body || (kind === 'dm' && !app)) return '';
 
     return buildTag(kind, {
         from: kind === 'dm' ? named.as || handles[normaliseName(app)] || '' : '',
-        to: people(to).map(n => canon(n) ?? n).join(', '),
+        to,
         app: appName(app),
-        subject: kind === 'email' ? named.subject || '' : '',
+        subject,
         time: named.time ? clockTime(named.time) ?? named.time : '',
     }, body);
 }
