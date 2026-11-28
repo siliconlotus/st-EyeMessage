@@ -1,18 +1,19 @@
 /* EyeMessage. SillyTavern prefixes every class in a message with "custom-", so the renderer's
-   "eye-sms" is ".custom-eye-sms" here. Every object sets its own background and text colour,
-   so it reads the same on a light or a dark theme.
+   "eye-sms" is ".custom-eye-sms" here. A screen or an email takes its colours from the
+   SillyTavern theme. Every other object sets its own background and text colour, so it reads the same on a
+   light or a dark theme.
 
-   A sender's colour comes from a hash of the name (--eye-hue). The colour picker in the
+   A sender's colour comes from a hash of the name (--element-hue). The colour picker in the
    EyeMessage settings panel overrides it with these variables, and you can set them by hand:
-       .mes_text [data-from="bob"] { --eye-bg: #7a2e4d; --eye-fg: #ffffff; --eye-name: #ffffff; --eye-nick: #e08fb0; }
+       .mes_text [data-from="bob"] { --element-bg: #7a2e4d; --element-fg: #ffffff; --element-name: #ffffff; --element-nick: #e08fb0; }
    The key is the name in lowercase with only letters and digits.
 
    An app's conversation panel can be themed by the app's name, same key rule:
-       .custom-eye-app-chatter { --eye-app-accent: #c13584; background: #1a1016; color: #f5e9ef; }
+       .custom-eye-app-chatter { --element-app-accent: #c13584; background: #1a1016; color: #f5e9ef; }
 */
 
 .custom-eye {
-    --eye-hue: 210;
+    --element-hue: 210;
     display: block;
     box-sizing: border-box;
     margin: 0.6em 0;
@@ -42,30 +43,30 @@
 .custom-eye-title { font-weight: 600; margin-bottom: 0.3em; }
 
 /* ---- Sender hues: 24 buckets, 15 degrees apart ---- */
-.custom-eye-hue-0 { --eye-hue: 0; }
-.custom-eye-hue-1 { --eye-hue: 15; }
-.custom-eye-hue-2 { --eye-hue: 30; }
-.custom-eye-hue-3 { --eye-hue: 45; }
-.custom-eye-hue-4 { --eye-hue: 60; }
-.custom-eye-hue-5 { --eye-hue: 75; }
-.custom-eye-hue-6 { --eye-hue: 90; }
-.custom-eye-hue-7 { --eye-hue: 105; }
-.custom-eye-hue-8 { --eye-hue: 120; }
-.custom-eye-hue-9 { --eye-hue: 135; }
-.custom-eye-hue-10 { --eye-hue: 150; }
-.custom-eye-hue-11 { --eye-hue: 165; }
-.custom-eye-hue-12 { --eye-hue: 180; }
-.custom-eye-hue-13 { --eye-hue: 195; }
-.custom-eye-hue-14 { --eye-hue: 210; }
-.custom-eye-hue-15 { --eye-hue: 225; }
-.custom-eye-hue-16 { --eye-hue: 240; }
-.custom-eye-hue-17 { --eye-hue: 255; }
-.custom-eye-hue-18 { --eye-hue: 270; }
-.custom-eye-hue-19 { --eye-hue: 285; }
-.custom-eye-hue-20 { --eye-hue: 300; }
-.custom-eye-hue-21 { --eye-hue: 315; }
-.custom-eye-hue-22 { --eye-hue: 330; }
-.custom-eye-hue-23 { --eye-hue: 345; }
+.custom-eye-hue-0 { --element-hue: 0; }
+.custom-eye-hue-1 { --element-hue: 15; }
+.custom-eye-hue-2 { --element-hue: 30; }
+.custom-eye-hue-3 { --element-hue: 45; }
+.custom-eye-hue-4 { --element-hue: 60; }
+.custom-eye-hue-5 { --element-hue: 75; }
+.custom-eye-hue-6 { --element-hue: 90; }
+.custom-eye-hue-7 { --element-hue: 105; }
+.custom-eye-hue-8 { --element-hue: 120; }
+.custom-eye-hue-9 { --element-hue: 135; }
+.custom-eye-hue-10 { --element-hue: 150; }
+.custom-eye-hue-11 { --element-hue: 165; }
+.custom-eye-hue-12 { --element-hue: 180; }
+.custom-eye-hue-13 { --element-hue: 195; }
+.custom-eye-hue-14 { --element-hue: 210; }
+.custom-eye-hue-15 { --element-hue: 225; }
+.custom-eye-hue-16 { --element-hue: 240; }
+.custom-eye-hue-17 { --element-hue: 255; }
+.custom-eye-hue-18 { --element-hue: 270; }
+.custom-eye-hue-19 { --element-hue: 285; }
+.custom-eye-hue-20 { --element-hue: 300; }
+.custom-eye-hue-21 { --element-hue: 315; }
+.custom-eye-hue-22 { --element-hue: 330; }
+.custom-eye-hue-23 { --element-hue: 345; }
 
 /* ---- Text message, and a direct message inside an app ---- */
 .custom-eye-sms,
@@ -73,11 +74,11 @@
     width: fit-content;
     max-width: min(82%, 26em);
     font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
-    color: var(--eye-fg, #f3f5f7);
-    background: var(--eye-bg, hsl(var(--eye-hue) 32% 24%));
+    color: var(--element-fg, #f3f5f7);
+    background: var(--element-bg, hsl(var(--element-hue) 32% 24%));
     border-radius: 16px 16px 16px 4px;
 }
-:is(.custom-eye-sms, .custom-eye-dm) .custom-eye-who { color: var(--eye-name, hsl(var(--eye-hue) 75% 80%)); }
+:is(.custom-eye-sms, .custom-eye-dm) .custom-eye-who { color: var(--element-name, hsl(var(--element-hue) 75% 80%)); }
 :is(.custom-eye-sms, .custom-eye-dm).custom-eye-out {
     margin-left: auto;
     color: #ffffff;
@@ -106,14 +107,14 @@
 /* Only the vertical margins: a sent bubble keeps its automatic left margin, which pushes it right. */
 .custom-eye-convo > .custom-eye { margin-block: 0.35em; max-width: 88%; }
 /* Text between the messages of a <thread>, such as a date or "seen". */
-.custom-eye-note { text-align: center; font-size: 0.76em; opacity: 0.7; margin: 0.4em 0; }
+.custom-eye-note { display: block; text-align: center; font-size: 0.76em; opacity: 0.7; margin: 0.4em 0; }
 /* A repeated sender is named once, and the bubbles sit closer. */
 .custom-eye-convo > .custom-eye-same { margin-top: -0.15em; }
 .custom-eye-same .custom-eye-head { display: none; }
 
 /* The line at the top of a panel: the app's name, the group's name when it has one, and on a
    conversation you open, who it is to.
-   An email you send carries the same "To" line. */
+   A letter you send carries the same "To" line. */
 .custom-eye-thread {
     font-size: 0.74em;
     opacity: 0.85;
@@ -133,7 +134,7 @@
     height: 0.6em;
     margin-right: 0.45em;
     border-radius: 50%;
-    background: var(--eye-app-accent, currentColor);
+    background: var(--element-app-accent, currentColor);
 }
 .custom-eye-group { font-weight: 600; }
 .custom-eye-app + .custom-eye-group::before,
@@ -164,29 +165,125 @@
 .custom-eye-line > span { display: inline; }
 .custom-eye-nick {
     font-weight: 700;
-    color: var(--eye-nick, hsl(var(--eye-hue) 75% 72%));
+    color: var(--element-nick, hsl(var(--element-hue) 75% 72%));
 }
 .custom-eye-nick::after { content: ":"; }
 /* A line you posted yourself. */
 .custom-eye-nick.custom-eye-own { color: #8ab4ff; }
 .custom-eye-sys { font-style: italic; color: #adadb8; }
 
-/* ---- Email ---- */
+/* ---- Email ----
+   Its colours come from the SillyTavern theme, like a screen's. Lines and muted text are made from the email's
+   own text colour, so a style that sets a background and a colour carries through. The badge is in the sender's
+   colour; the edge is too, unless a color attribute sets --element-accent. */
 .custom-eye-email {
-    max-width: 36em;
-    padding: 0.8em 1em;
+    --element-ink: var(--SmartThemeBodyColor);
+    --element-mark: var(--element-bg, hsl(var(--element-hue) 45% 36%));
+    --element-layer: color-mix(in srgb, currentColor 5%, transparent);
+    --element-line: color-mix(in srgb, currentColor 18%, transparent);
+    --element-muted: color-mix(in srgb, currentColor 70%, transparent);
+    max-width: 40em;
+    padding: 0 0 1em;
+    overflow: hidden;
     font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
-    color: #1f2328;
-    background: #f6f8fa;
-    border: 1px solid #d0d7de;
-    border-left: 4px solid var(--eye-bg, hsl(var(--eye-hue) 55% 45%));
+    font-size: 1em;
+    line-height: 1.55;
+    color: var(--element-ink);
+    background: var(--element-layer);
+    border: 1px solid var(--element-line);
+    border-top: 3px solid var(--element-accent, var(--element-mark));
+    border-radius: 8px;
+}
+.custom-eye-email.custom-eye-out { --element-mark: hsl(212 72% 42%); }
+.custom-eye-email > span { margin: 0.9em 1.1em 0; }
+/* The thread's title, on an email inside one. */
+.custom-eye-email > .custom-eye-thread { margin: 0.7em 1.3em 0; font-size: 0.85em; opacity: 1; color: var(--element-muted); }
+.custom-eye-email > .custom-eye-title {
+    margin: 0;
+    padding: 0.6em 0.95em;
+    font-size: 1.15em;
+    line-height: 1.35;
+    background: var(--element-layer);
+    border-bottom: 1px solid var(--element-line);
+}
+.custom-eye-email > .custom-eye-thread + .custom-eye-title { padding-top: 0.3em; background: none; }
+/* Several emails on one card: each keeps the sender's colour, as its left edge. */
+.custom-eye-mails {
+    max-width: 40em;
+    margin: 0.6em 0;
+    overflow: hidden;
+    border: 1px solid color-mix(in srgb, var(--SmartThemeBodyColor) 18%, transparent);
+    border-radius: 8px;
+}
+.custom-eye-mails > .custom-eye-email {
+    max-width: none;
+    margin: 0;
+    border: 0;
+    border-left: 3px solid var(--element-accent, var(--element-mark));
+    border-radius: 0;
+}
+.custom-eye-mails > .custom-eye-email + .custom-eye-email { border-top: 1px solid var(--element-line); }
+.custom-eye-re {
+    display: inline-block;
+    margin-right: 0.6em;
+    padding: 0.1em 0.6em;
+    font-size: 0.65em;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    vertical-align: 0.2em;
+    color: var(--element-muted);
+    border: 1px solid var(--element-line);
+    border-radius: 99px;
+}
+.custom-eye-email > .custom-eye-head {
+    display: flex;
+    align-items: center;
+    gap: 0.7em;
+    font-size: 1em;
+    line-height: 1.3;
+}
+.custom-eye-badge {
+    flex: none;
+    width: 2.4em;
+    line-height: 2.4em;
+    text-align: center;
+    font-weight: 600;
+    color: var(--element-fg, #ffffff);
+    background: var(--element-mark);
+    border-radius: 50%;
+}
+.custom-eye-names { flex: 1; min-width: 0; }
+.custom-eye-names > span { display: block; }
+.custom-eye-email :is(.custom-eye-handle, .custom-eye-to, .custom-eye-time) {
+    margin: 0;
+    font-size: 0.85em;
+    opacity: 1;
+    color: var(--element-muted);
+}
+.custom-eye-email .custom-eye-time { float: right; margin-left: 0.8em; white-space: nowrap; }
+.custom-eye-email .custom-eye-time::before { content: ""; }
+.custom-eye-par { display: block; }
+.custom-eye-par + .custom-eye-par { margin-top: 0.9em; }
+.custom-eye-signoff { color: var(--element-muted); }
+.custom-eye-email > .custom-eye-files {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5em;
+    padding-top: 0.8em;
+    border-top: 1px solid var(--element-line);
+}
+.custom-eye-file {
+    padding: 0.3em 0.7em;
+    font-size: 0.85em;
+    background: var(--element-layer);
+    border: 1px solid var(--element-line);
     border-radius: 6px;
 }
-.custom-eye-email .custom-eye-head { color: #57606a; }
-.custom-eye-email .custom-eye-title {
-    padding-bottom: 0.4em;
-    margin-bottom: 0.5em;
-    border-bottom: 1px solid #d0d7de;
+.custom-eye-file::before {
+    content: "\f0c6";
+    margin-right: 0.5em;
+    font: 900 0.9em "Font Awesome 6 Free";
+    color: var(--element-muted);
 }
 
 /* ---- Letter, note, card, receipt ---- */
@@ -201,10 +298,23 @@
     border: 1px solid #d9cbb0;
     box-shadow: 1px 2px 6px rgba(0, 0, 0, 0.3);
 }
+/* SillyTavern shadows the text of every element, which smudges ink on paper. */
+.custom-eye-letter, .custom-eye-letter * { text-shadow: none; }
 .custom-eye-letter .custom-eye-head {
     font-variant: small-caps;
     letter-spacing: 0.04em;
     color: #6b5a45;
+}
+/* Typed: a typewriter's or a till's letters, each the same width, with the spacing kept, so columns line up. */
+.custom-eye-letter.custom-eye-typed .custom-eye-body { font-family: "Courier New", Courier, ui-monospace, monospace; font-size: 0.95em; white-space: pre-wrap; }
+/* Handwritten in pen, from whatever hand the reader's system has, unless it is typed. font-size-adjust
+   evens out the sizes of the different hands. */
+.custom-eye-letter:not(.custom-eye-typed) :is(.custom-eye-body, .custom-eye-title) {
+    font-family: "Bradley Hand", "Segoe Print", Noteworthy, "Ink Free", casual, cursive;
+    font-size-adjust: 0.5;
+    font-size: 1.08em;
+    line-height: 1.5;
+    color: #22304f;
 }
 
 /* ---- Sign, placard, chalkboard ---- */
@@ -224,140 +334,364 @@
     outline: 3px solid #2a2f36;
 }
 
-/* ---- Screen: terminal, feed, app ---- */
+/* ---- Screen: terminal, feed, app, record ----
+   Its colours come from the SillyTavern theme. The panels are thin layers of the text colour over the
+   message, so text reads on them wherever it reads in the message. Everything is mixed from the screen's own
+   text colour, so a style that sets a background and a colour carries through. A color attribute on the screen, or on
+   a section inside it, sets --element-accent. */
 .custom-eye-screen {
+    --element-ink: currentColor;
+    --element-accent: var(--SmartThemeQuoteColor);
+    --element-layer: color-mix(in srgb, currentColor 5%, transparent);
+    --element-line: color-mix(in srgb, currentColor 18%, transparent);
+    --element-muted: color-mix(in srgb, currentColor 68%, transparent);
     max-width: 40em;
-    padding: 0.8em 1em;
+    padding: 0 0 0.8em;
+    overflow: hidden;
     font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     font-size: 0.86em;
-    color: #c9d1d9;
-    background: #0d1117;
-    border: 1px solid #30363d;
+    color: var(--SmartThemeBodyColor);
+    background: var(--element-layer);
+    border: 1px solid var(--element-line);
     border-radius: 6px;
 }
+.custom-eye-screen > span { margin-left: 1em; margin-right: 1em; }
+.custom-eye-screen > span:first-child:not(.custom-eye-title) { margin-top: 0.8em; }
 /* Keeps the column spacing of a terminal or table. */
 .custom-eye-screen .custom-eye-body { white-space: pre-wrap; }
-.custom-eye-screen .custom-eye-title {
-    color: #8b949e;
-    padding-bottom: 0.4em;
-    margin-bottom: 0.5em;
-    border-bottom: 1px solid #30363d;
+.custom-eye-screen > .custom-eye-title {
+    margin: 0 0 0.8em;
+    padding: 0.55em 1em;
     font-weight: 400;
+    background: var(--element-layer);
+    border-bottom: 1px solid var(--element-line);
+    box-shadow: inset 3px 0 var(--element-accent);
 }
 
-/* ---- System window: the status screens and notifications of a game-like world ---- */
-.custom-eye-system_window {
-    width: fit-content;
-    min-width: min(100%, 16em);
-    max-width: min(100%, 34em);
-    margin-left: auto;
-    margin-right: auto;
-    padding: 0.7em 1.1em;
-    font-family: "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-    font-size: 0.9em;
-    letter-spacing: 0.02em;
-    color: #e2f4ff;
-    background: #0b1c33;
-    border: 1px solid #56b9ec;
-    outline: 1px solid #0b1c33;
-    border-radius: 3px;
-}
-/* Keeps the alignment of a stat table. */
-.custom-eye-system_window .custom-eye-body { white-space: pre-wrap; }
-.custom-eye-system_window .custom-eye-title {
-    text-align: center;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: #8fd3f7;
-    padding-bottom: 0.4em;
-    margin-bottom: 0.5em;
-    border-bottom: 1px solid #2f6f9c;
-}
-
-/* A system window with nested tags. Each tag is drawn by its shape: a section, a row, a bar, or a
-   short value in a cell. To colour a bar by its tag name:
-       .custom-eye-sw-bar[data-name="stamina"] { --eye-bar: #5fbf7a; } */
+/* A screen with nested tags. Each tag is drawn by its shape: a section, a row, a bar, or a short value in a
+   cell. To colour a bar by its tag name:
+       .custom-eye-sw-bar[data-name="stamina"] { --element-bar: #5fbf7a; }
+   A screen's style may set --element-font for the text inside it and --element-radius for the corners of its sections and
+   cells, as a house style does. */
 .custom-eye-sw,
 .custom-eye-sw-group,
 .custom-eye-sw-rows,
 .custom-eye-sw-heading,
 .custom-eye-sw-note { display: block; }
-.custom-eye-sw-group + .custom-eye-sw-group,
+.custom-eye-sw { font-family: var(--element-font, "Segoe UI", Roboto, "Helvetica Neue", sans-serif); font-size: 1.08em; }
 .custom-eye-sw-rows > * + .custom-eye-sw-group,
+.custom-eye-sw-group + :is(.custom-eye-sw-row, .custom-eye-sw-bar),
 .custom-eye-sw-rows + .custom-eye-sw-note,
 .custom-eye-sw-note + .custom-eye-sw-rows { margin-top: 0.65em; }
+.custom-eye-sw-note { opacity: 0.85; white-space: pre-wrap; }
+
+/* A section is a card. */
+/* Sections and cells are glass: a thin layer of the text colour with a white shine from above, so whatever
+   is behind the screen shows through. */
+.custom-eye-sw-group,
+.custom-eye-sw-cell {
+    background: linear-gradient(#ffffff1a, #ffffff00 70%), var(--element-layer);
+    border: 1px solid var(--element-line);
+    box-shadow: inset 0 1px #ffffff2e;
+}
+.custom-eye-sw-group {
+    padding: 0.55em 0.7em 0.65em;
+    border-radius: var(--element-radius, 7px);
+}
 .custom-eye-sw-heading {
     font-size: 0.78em;
+    font-weight: 600;
     letter-spacing: 0.1em;
     text-transform: uppercase;
-    color: #8fd3f7;
+    color: var(--element-accent);
     margin-bottom: 0.3em;
 }
 /* A section inside a section is headed by its own words, such as a quest's name. */
 .custom-eye-sw-group .custom-eye-sw-group > .custom-eye-sw-heading {
     font-size: 1em;
-    font-weight: 600;
     letter-spacing: 0;
     text-transform: none;
     color: inherit;
     margin-bottom: 0.1em;
 }
-.custom-eye-sw-group .custom-eye-sw-group > .custom-eye-sw-rows { margin-left: 0.9em; }
-.custom-eye-sw-row { display: flex; gap: 0.6em; align-items: baseline; padding: 0.12em 0; }
-.custom-eye-sw-label { color: #8fb7d6; }
-.custom-eye-sw-value { flex: 1; }
+
+/* A row: a label and its value. Labels line up in a column. */
+/* When the row is short of room, the lozenges move to a line of their own rather than squeeze the value. */
+.custom-eye-sw-row { display: flex; flex-wrap: wrap; gap: 0 0.6em; align-items: baseline; padding: 0.12em 0; }
+.custom-eye-sw-row + .custom-eye-sw-row { border-top: 1px solid var(--element-line); }
+/* A label keeps its own weight and colour, so a style on the box shows on the value. */
+.custom-eye-sw-label { color: var(--element-muted); font-weight: 400; font-style: normal; }
+.custom-eye-sw-row > .custom-eye-sw-label { flex: 0 0 8em; text-align: left; }
+.custom-eye-sw-value { flex: 1 1 6em; }
+
 .custom-eye-sw-chips { display: inline-flex; gap: 0.3em; margin-left: auto; }
 .custom-eye-sw-chip {
     font-size: 0.78em;
     padding: 0.05em 0.45em;
-    border: 1px solid #2f6f9c;
+    border: 1px solid var(--element-line);
     border-radius: 3px;
-    color: #bfe6fb;
+    color: inherit;
     letter-spacing: 0;
     text-transform: none;
     white-space: nowrap;
 }
-.custom-eye-sw-heading .custom-eye-sw-chip { margin-left: 0.6em; font-weight: 400; }
-.custom-eye-sw-cells { display: flex; flex-wrap: wrap; gap: 0.4em 0.5em; }
-.custom-eye-sw-cell {
-    display: inline-flex;
-    flex-direction: column;
-    min-width: 3.6em;
-    padding: 0.25em 0.6em;
-    color: #e2f4ff;
-    background: #12294a;
-    border-radius: 3px;
+/* A modifier of the value it is on: a tinted lozenge. */
+.custom-eye-sw-chip:is(.custom-eye-sw-badge, .custom-eye-sw-alert) {
+    --element-lozenge: var(--element-accent);
+    align-self: center;
+    font-size: 0.68em;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: color-mix(in srgb, var(--element-lozenge) 70%, var(--element-ink));
+    background: color-mix(in srgb, var(--element-lozenge) 18%, transparent);
+    border-color: color-mix(in srgb, var(--element-lozenge) 45%, transparent);
 }
-.custom-eye-sw-cell .custom-eye-sw-label { font-size: 0.72em; }
-.custom-eye-sw-cell .custom-eye-sw-value { font-weight: 600; }
+.custom-eye-sw-chip.custom-eye-sw-alert { --element-lozenge: color-mix(in srgb, #bd8c00 58%, var(--element-ink)); }
+.custom-eye-sw-heading .custom-eye-sw-chip { margin-left: 0.6em; font-weight: 400; }
+.custom-eye-sw-heading .custom-eye-sw-chip:is(.custom-eye-sw-badge, .custom-eye-sw-alert) { font-size: 0.85em; font-weight: 700; }
+
+/* Short values, side by side: in one row when there is room for --n of them at 6em each, otherwise two to a
+   row, the way rings and columns are. */
+.custom-eye-sw-cells { display: flex; flex-wrap: wrap; gap: 0.4em; }
+.custom-eye-sw-cell {
+    display: block;
+    flex: 1 1 clamp(0px, (var(--n) * 6em - 100%) * 999, calc(50% - 0.2em));
+    padding: 0.25em 0.6em;
+    font-weight: 600;
+    border-radius: var(--element-radius, 5px);
+}
+.custom-eye-sw-cells + *,
+.custom-eye-sw-rows > * + .custom-eye-sw-cells { margin-top: 0.35em; }
+.custom-eye-sw-cell .custom-eye-sw-label { display: block; font-size: 0.72em; text-transform: uppercase; letter-spacing: 0.05em; }
+.custom-eye-sw-cell .custom-eye-sw-chips { flex-wrap: wrap; margin-left: 0.6em; vertical-align: middle; }
+.custom-eye-sw-cell .custom-eye-sw-chip { white-space: nowrap; }
+
 .custom-eye-sw-bar {
     display: grid;
-    grid-template-columns: 3.2em minmax(8em, 1fr) auto;
+    grid-template-columns: minmax(4em, 8em) minmax(4em, 1fr) auto;
     gap: 0.5em;
     align-items: center;
     padding: 0.15em 0;
 }
-.custom-eye-sw-track { display: block; height: 0.5em; background: #12294a; border-radius: 0.25em; overflow: hidden; }
-.custom-eye-sw-fill { display: block; height: 100%; background: var(--eye-bar, #56b9ec); }
+.custom-eye-sw-track { display: block; height: 0.5em; background: var(--element-line); border-radius: 0.25em; overflow: hidden; }
+.custom-eye-sw-fill { display: block; height: 100%; background: var(--element-bar, var(--element-accent)); }
 .custom-eye-sw-bar[data-name="hp"],
-.custom-eye-sw-bar[data-name="health"] { --eye-bar: #e0605a; }
+.custom-eye-sw-bar[data-name="health"] { --element-bar: #e0605a; }
 .custom-eye-sw-bar[data-name="mp"],
-.custom-eye-sw-bar[data-name="mana"] { --eye-bar: #6a8ff0; }
+.custom-eye-sw-bar[data-name="mana"] { --element-bar: #6a8ff0; }
 .custom-eye-sw-bar[data-name="sp"],
-.custom-eye-sw-bar[data-name="stamina"] { --eye-bar: #5fbf7a; }
+.custom-eye-sw-bar[data-name="stamina"] { --element-bar: #5fbf7a; }
 .custom-eye-sw-bar[data-name="xp"],
-.custom-eye-sw-bar[data-name="exp"] { --eye-bar: #e0b84a; }
-.custom-eye-sw-count { font-size: 0.85em; font-variant-numeric: tabular-nums; }
-.custom-eye-sw-note { text-align: center; opacity: 0.85; }
+.custom-eye-sw-bar[data-name="exp"] { --element-bar: #e0b84a; }
+.custom-eye-sw-count { font-size: 0.85em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.custom-eye-sw-bar > .custom-eye-sw-chip { justify-self: start; }
+/* A ring: the bar drawn round. A column: the bar standing up. Rings and columns next to each other sit side by side. */
+.custom-eye-sw-ring,
+.custom-eye-sw-column {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.3em;
+    margin: 0.2em 0.4em 0.2em 0;
+    vertical-align: top;
+}
+/* Each the same width, so a row of them is evenly spaced whatever their labels say. A label of several words
+   wraps between them; one long word spills evenly past both sides. */
+.custom-eye-sw-ring { width: 4.8em; }
+.custom-eye-sw-column { width: 4.6em; }
+:is(.custom-eye-sw-ring, .custom-eye-sw-column) > .custom-eye-sw-label { font-size: 0.85em; line-height: 1.2; text-align: center; overflow-wrap: normal; }
+/* Several side by side: one row, shared evenly, when there is room for --n of them at 5em each; otherwise two
+   to a row. The basis is 0 or huge either side of that width, clamped to half, so a row is never 3 + 1. */
+.custom-eye-sw-gauges { display: flex; flex-wrap: wrap; }
+.custom-eye-sw-gauges > * { flex: 1 1 clamp(0px, (var(--n) * 5em - 100%) * 999, 50%); margin: 0.2em 0; }
+.custom-eye-sw-gauges + *,
+.custom-eye-sw-rows > * + .custom-eye-sw-gauges { margin-top: 0.35em; }
+.custom-eye-sw-column > .custom-eye-sw-count { font-size: 0.78em; }
+.custom-eye-sw-dial { position: relative; display: grid; place-items: center; width: 4.2em; height: 4.2em; }
+.custom-eye-sw-dial::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: conic-gradient(var(--element-bar, var(--element-accent)) var(--element-fill), var(--element-line) 0);
+    mask: radial-gradient(farthest-side, transparent calc(100% - 0.5em), #000 calc(100% - 0.5em + 1px));
+}
+.custom-eye-sw-ring .custom-eye-sw-count { position: relative; max-width: 4.4em; font-size: 0.72em; font-weight: 600; line-height: 1.15; text-align: center; white-space: normal; }
+.custom-eye-sw-gauge {
+    display: block;
+    width: 0.9em;
+    height: 5em;
+    border-radius: 0.3em;
+    background: linear-gradient(to top, var(--element-bar, var(--element-accent)) var(--element-fill), var(--element-line) 0);
+}
+/* --element-glow: a filter for rings and columns, e.g. --element-glow:drop-shadow(0 0 4px #00e5ffaa). */
+.custom-eye-sw-dial, .custom-eye-sw-gauge { filter: var(--element-glow, none); }
+/* chart=segments: the track cut into --element-segs blocks, with gaps a quarter of a block; the fill is rounded to whole blocks. */
+.custom-eye-sw-segments .custom-eye-sw-track {
+    border-radius: 0;
+    mask: repeating-linear-gradient(90deg, #000 0 calc(75% / var(--element-segs)), transparent 0 calc(100% / var(--element-segs)));
+}
+/* Tick marks round a ring, every tenth, in --element-ticks. Off unless a style sets it, e.g.
+   section-style="--element-ticks:#7fe8ff88". */
+.custom-eye-sw-dial::after {
+    content: "";
+    position: absolute;
+    inset: -0.3em;
+    border-radius: 50%;
+    background: repeating-conic-gradient(from -1deg, var(--element-ticks, transparent) 0 2deg, transparent 0 36deg);
+    mask: radial-gradient(farthest-side, transparent calc(100% - 0.22em), #000 calc(100% - 0.22em + 1px));
+    pointer-events: none;
+}
+
+/* Motion for styles to use, as animation:eye-pulse 1.6s infinite. Nothing moves for a reader who has asked
+   for less motion. */
+@keyframes eye-pulse { 50% { opacity: 0.55; } }
+@keyframes eye-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+@keyframes eye-flicker { 0%, 100% { opacity: 1; } 8% { opacity: 0.6; } 10% { opacity: 1; } 52% { opacity: 0.8; } 54% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+    .custom-eye-screen, .custom-eye-screen * { animation: none !important; }
+}
+
+/* ---- Built-in classes: class="banner pulse" on a screen or any tag in it, drawn as eye-x-name. Each takes the
+   tag's colour (--element-tint), else the accent. A theme sets the screen's own background; brackets draw on ::before
+   and scanlines on ::after, so they stack with a theme and with a style's own background. ---- */
+:is(.custom-eye-screen, .custom-eye-screen *):is(.custom-eye-x-banner, .custom-eye-x-glow, .custom-eye-x-brackets, .custom-eye-x-scanlines, .custom-eye-x-ticks) {
+    --element-x: var(--element-tint, var(--element-accent));
+}
+.custom-eye-screen .custom-eye-x-banner {
+    margin: 0.3em 0 0.5em;
+    padding: 0.45em 0.8em;
+    font-size: 1.3em;
+    font-weight: 800;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--element-x);
+    text-shadow: 0 0 6px var(--element-x), 0 0 18px var(--element-x);
+    background: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--element-x) 18%, transparent) 0 10px, color-mix(in srgb, var(--element-x) 4%, transparent) 10px 20px);
+    border: 1px solid var(--element-x);
+    box-shadow: 0 0 16px color-mix(in srgb, var(--element-x) 40%, transparent), inset 0 0 18px color-mix(in srgb, var(--element-x) 25%, transparent);
+}
+.custom-eye-screen .custom-eye-x-banner, .custom-eye-screen .custom-eye-x-banner * { overflow-wrap: normal; }
+.custom-eye-screen .custom-eye-x-banner > .custom-eye-sw-label { flex-basis: auto; align-self: center; font-size: 0.6em; letter-spacing: 0.15em; }
+:is(.custom-eye-screen, .custom-eye-screen *).custom-eye-x-glow { text-shadow: 0 0 6px var(--element-x); --element-glow: drop-shadow(0 0 4px var(--element-x)); }
+:is(.custom-eye-screen, .custom-eye-screen *).custom-eye-x-ticks { --element-ticks: color-mix(in srgb, var(--element-x) 55%, transparent); }
+:is(.custom-eye-screen, .custom-eye-screen *).custom-eye-x-caps { text-transform: uppercase; letter-spacing: 0.08em; }
+:is(.custom-eye-screen, .custom-eye-screen *).custom-eye-x-pulse { animation: eye-pulse 1.6s ease-in-out infinite; }
+:is(.custom-eye-screen, .custom-eye-screen *).custom-eye-x-blink { animation: eye-blink 1s infinite; }
+:is(.custom-eye-screen, .custom-eye-screen *).custom-eye-x-flicker { animation: eye-flicker 3s infinite; }
+:is(.custom-eye-screen, .custom-eye-screen *):is(.custom-eye-x-cut, .custom-eye-x-hud .custom-eye-sw-group) {
+    border-radius: 0;
+    clip-path: polygon(0.7em 0, 100% 0, 100% calc(100% - 0.7em), calc(100% - 0.7em) 100%, 0 100%, 0 0.7em);
+}
+:is(.custom-eye-screen, .custom-eye-screen *):is(.custom-eye-x-brackets, .custom-eye-x-scanlines, .custom-eye-x-hud, .custom-eye-x-terminal) { position: relative; }
+:is(.custom-eye-screen, .custom-eye-screen *):is(.custom-eye-x-brackets, .custom-eye-x-hud)::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    pointer-events: none;
+    background:
+        conic-gradient(from 90deg at 2px 2px, transparent 90deg, var(--element-x) 0) 0 0 / 14px 14px no-repeat,
+        conic-gradient(from 180deg at calc(100% - 2px) 2px, transparent 90deg, var(--element-x) 0) 100% 0 / 14px 14px no-repeat,
+        conic-gradient(from 0deg at 2px calc(100% - 2px), transparent 90deg, var(--element-x) 0) 0 100% / 14px 14px no-repeat,
+        conic-gradient(from 270deg at calc(100% - 2px) calc(100% - 2px), transparent 90deg, var(--element-x) 0) 100% 100% / 14px 14px no-repeat;
+}
+/* With cut corners, only the two corners left standing. */
+:is(.custom-eye-screen, .custom-eye-screen *):is(.custom-eye-x-cut.custom-eye-x-brackets, .custom-eye-x-hud)::before {
+    background:
+        conic-gradient(from 180deg at calc(100% - 2px) 2px, transparent 90deg, var(--element-x) 0) 100% 0 / 18px 18px no-repeat,
+        conic-gradient(from 0deg at 2px calc(100% - 2px), transparent 90deg, var(--element-x) 0) 0 100% / 18px 18px no-repeat;
+}
+:is(.custom-eye-screen, .custom-eye-screen *):is(.custom-eye-x-scanlines, .custom-eye-x-hud, .custom-eye-x-terminal)::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(0deg, color-mix(in srgb, var(--element-x) 8%, transparent) 0 1px, transparent 1px 4px);
+}
+
+/* ---- Themes: class="hud" and the like on a screen. A style or color on the screen still comes after. Rules for
+   the parts inside use :where, so a built-in class on a part wins over its theme. ---- */
+.custom-eye-screen.custom-eye-x-hud {
+    --element-accent: #00e5ff;
+    --element-x: var(--element-accent);
+    --element-ticks: #7fe8ff77;
+    --element-glow: drop-shadow(0 0 4px #00e5ffaa);
+    color: #aef7ff;
+    background: radial-gradient(ellipse at 50% 0, #0d3440, #020a0e 75%);
+    border: 1px solid #00e5ff99;
+    border-radius: 0;
+    clip-path: polygon(16px 0, 100% 0, 100% calc(100% - 16px), calc(100% - 16px) 100%, 0 100%, 0 16px);
+    box-shadow: inset 0 0 30px #00e5ff30;
+    text-shadow: 0 0 6px #00e5ffaa;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+.custom-eye-x-hud > .custom-eye-title { font-weight: 700; letter-spacing: 0.3em; background: linear-gradient(90deg, #00e5ff40, #00e5ff00 70%); border-bottom-color: #00e5ff88; }
+.custom-eye-x-hud :where(.custom-eye-sw-group) {
+    background:
+        linear-gradient(135deg, transparent 46%, #00e5ff66 46% 54%, transparent 54%) 0 0 / 0.7em 0.7em no-repeat border-box,
+        linear-gradient(-45deg, transparent 46%, #00e5ff66 46% 54%, transparent 54%) 100% 100% / 0.7em 0.7em no-repeat border-box,
+        #00e5ff0d;
+    border-color: #00e5ff66;
+    box-shadow: inset 0 0 12px #00e5ff22;
+}
+
+.custom-eye-screen.custom-eye-x-console {
+    --element-accent: #f29b4b;
+    color: #dceaf5;
+    background: linear-gradient(#ffffff1c, #ffffff00 7em), linear-gradient(160deg, #1a4566, #07111c 65%);
+    border-color: #3a6c8f;
+    border-radius: 14px;
+    box-shadow: 0 14px 36px #000a, inset 0 1px #ffffff55;
+}
+
+.custom-eye-screen.custom-eye-x-terminal {
+    --element-accent: #39ff7a;
+    --element-x: var(--element-accent);
+    color: #7dffa6;
+    background: radial-gradient(ellipse at 50% 40%, #06240f, #010802 85%);
+    border-color: #1f7a3c;
+    border-radius: 4px;
+    box-shadow: inset 0 0 40px #000c;
+    text-shadow: 0 0 5px #39ff7a88;
+}
+.custom-eye-x-terminal .custom-eye-sw { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 1em; }
+.custom-eye-x-terminal > .custom-eye-title { background: #39ff7a1f; box-shadow: none; }
+.custom-eye-x-terminal :where(.custom-eye-sw-group, .custom-eye-sw-cell) { background: none; border-style: dashed; border-radius: 0; box-shadow: none; }
+
+.custom-eye-screen.custom-eye-x-parchment {
+    --element-accent: #8b2e16;
+    color: #3b2a17;
+    background: radial-gradient(ellipse at 50% 30%, #f7ecd2, #e2cd9c 90%);
+    border: 1px solid #8b6b3d;
+    border-radius: 3px;
+    box-shadow: inset 0 0 28px #8b6b3d66, 0 6px 18px #0006;
+    font-family: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+}
+.custom-eye-x-parchment .custom-eye-sw { font-family: inherit; }
+.custom-eye-x-parchment > .custom-eye-title { font-size: 1.15em; font-variant: small-caps; letter-spacing: 0.06em; text-align: center; background: none; border-bottom-color: #8b6b3d; box-shadow: none; }
+.custom-eye-x-parchment :where(.custom-eye-sw-group, .custom-eye-sw-cell) { background: #fffaf0; background: color-mix(in srgb, #fffaf0 45%, transparent); border-color: #8b6b3d66; box-shadow: none; }
+.custom-eye-x-parchment .custom-eye-sw-heading { font-variant: small-caps; letter-spacing: 0.04em; text-transform: none; }
 
 /* ---- Settings panel: contact colours. Inherits the theme's own text and background. ---- */
 .eyemessage-list { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; }
 .eyemessage-row { display: flex; align-items: center; gap: 8px; }
 .eyemessage-row input[type="color"] { width: 2.2em; height: 1.6em; padding: 0; border: none; background: none; cursor: pointer; }
 /* SillyTavern gives .menu_button its own display, which would show a hidden Auto button. */
-.eyemessage-row [hidden] { display: none; }
+.eyemessage-settings [hidden] { display: none; }
+.eyemessage-icon { width: 2.2em; text-align: center; }
+/* Solid icons are in the first font and brand icons in the second, which has no bold. */
+.eyemessage-fa { font-family: "Font Awesome 6 Free", "Font Awesome 6 Brands"; font-weight: 900; font-synthesis: none; }
+.eyemessage-row .eyemessage-icon-box { width: 9em; margin: 0; }
+.eyemessage-list .eyemessage-same { width: auto; margin: 0 0 4px 2.8em; }
+.eyemessage-aliases { display: flex; flex-wrap: wrap; gap: 2px 10px; margin: -2px 0 4px 2.8em; font-size: 0.85em; opacity: 0.8; }
+.eyemessage-aliases button { margin-left: 0.2em; padding: 0 0.3em; border: none; background: none; color: inherit; opacity: 0.7; cursor: pointer; }
+.eyemessage-aliases button:hover { opacity: 1; }
 .eyemessage-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .eyemessage-count { opacity: 0.6; font-size: 0.85em; }
 .eyemessage-group { margin-top: 8px; font-size: 0.85em; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.06em; }
+.eyemessage-more > summary { cursor: pointer; font-size: 0.85em; opacity: 0.7; }
 .eyemessage-taught { display: flex; flex-wrap: wrap; gap: 2px 14px; margin: 2px 0 8px 22px; }
+.eyemessage-styles { display: block; width: 100%; margin: 2px 0 8px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.85em; resize: vertical; }
 .eyemessage-empty { opacity: 0.7; font-style: italic; margin: 6px 0; }

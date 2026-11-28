@@ -8,5 +8,5 @@
     "author": "siliconlotus",
     "version": "0.0.10",
     "homePage": "https://github.com/siliconlotus/st-EyeMessage",
-    "description": "Draws texts, app messages, emails, letters, signs, screens, live chats and game System windows from plain tags, with a stable colour per sender, a colour picker, and /sms, /dm and /email commands. The chat and the prompt keep the plain tags."
+    "description": "Draws texts, app messages, emails, letters, signs, screens and live chats from plain tags, with a stable colour per sender, a colour picker, and /sms, /dm and /email commands. The chat and the prompt keep the plain tags."
 }

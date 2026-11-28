@@ -4,8 +4,12 @@
 //
 // @typedef {object} Store
 // @property {Record<string, string>} colors    Picked colour by normalised contact name.
+// @property {Record<string, string>} aliases   The person a name belongs to, by normalised name: both are keys.
+//                                              Never a chain: a person is not itself an alias.
+// @property {Record<string, string>} icons     Picked icon by normalised app name: "fa-camera", or an emoji.
 // @property {boolean} inject                   Whether the tag instructions are injected into the system prompt.
 //                                              On unless it has been turned off.
+// @property {boolean} hud                      Whether the screen instructions also show the advanced HUD example.
 // @property {Record<string, boolean>} tags     Which tags the model is told about, where that was chosen.
 //                                              A tag not listed follows its default.
 // @property {Record<string, Persona>} personas The user's accounts, by persona name: a handle belongs
@@ -18,12 +22,15 @@
 import { normaliseName } from './render.js';
 
 /** @returns {Store} */
-export const emptyStore = () => ({ colors: {}, inject: true, tags: {}, personas: {}, names: {} });
+export const emptyStore = () => ({ colors: {}, aliases: {}, icons: {}, inject: true, hud: false, tags: {}, personas: {}, names: {} });
 
 /** Fills in anything missing, so a set saved by an older version still reads. */
 export function complete(store) {
     store.colors ??= {};
+    store.aliases ??= {};
+    store.icons ??= {};
     store.inject ??= true;
+    store.hud ??= false;
     store.tags ??= {};
     store.personas ??= {};
     store.names ??= {};
@@ -68,6 +75,33 @@ export function forgetHandle(store, personaName, handle) {
     for (const app of Object.keys(mine.handles)) if (mine.handles[app] === handle) delete mine.handles[app];
 }
 
+/** The person a normalised name belongs to: itself, unless it is an alias. */
+export const personOf = (store, key) => Object.hasOwn(store.aliases, key) ? store.aliases[key] : key;
+
+/**
+ * Makes one name, and everything linked to it, an alias of another. The person keeps their own picked
+ * colour, or takes the alias's when they have none.
+ */
+export function linkAlias(store, key, main) {
+    const { aliases, colors } = store;
+    const [from, to] = [personOf(store, key), personOf(store, main)];
+    if (!from || !to || from === to) return;
+    for (const other of Object.keys(aliases)) if (aliases[other] === from) aliases[other] = to;
+    aliases[from] = to;
+    giveColour(colors, from, to);
+}
+
+/** A person keeps the colour picked for them, or takes the one picked for an alias. */
+function giveColour(colors, alias, person) {
+    if (colors[alias]) colors[person] ??= colors[alias];
+    delete colors[alias];
+}
+
+/** Makes an alias its own person again, with its automatic colour. */
+export function unlinkAlias(store, key) {
+    delete store.aliases[key];
+}
+
 /**
  * Adds names to a set's remembered names. A name already known keeps its first spelling.
  * @returns {boolean} whether any were new
@@ -90,7 +124,12 @@ export function mergeStores(into, from) {
     complete(into);
     complete(from);
     Object.assign(into.colors, from.colors);
+    for (const [key, main] of Object.entries(from.aliases)) linkAlias(into, key, main);
+    // A name with a colour in one set may be an alias in the other.
+    for (const [key, main] of Object.entries(into.aliases)) giveColour(into.colors, key, main);
+    Object.assign(into.icons, from.icons);
     into.inject = from.inject;
+    into.hud = from.hud;
     Object.assign(into.tags, from.tags);
     for (const [name, theirs] of Object.entries(from.personas)) {
         for (const handle of theirs.accounts ?? []) addAccount(into, name, handle);
