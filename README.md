@@ -242,7 +242,7 @@ Screens take their colours from your SillyTavern theme: the main text colour, sh
 .custom-eye-screen { --element-ink: #dcdcd2; --element-accent: #58a6ff; }
 ```
 
-A screen also reads `--element-layer` (the shade behind sections), `--element-line` (rules and borders), `--element-muted` (labels), `--element-font` (the font inside it) and `--element-radius` (the corners of its sections and cells). Set in a named style, these make a house style for one place, as `<styles><club>--element-accent:#f2c335;--element-font:Georgia,serif;--element-radius:0;background:#080808;color:#f4f4f2</club></styles>`.
+A screen also reads `--element-layer` (the shade behind sections), `--element-line` (rules and borders), `--element-muted` (labels), `--element-font` (the font inside it), `--element-label-font` (its labels and section headings) and `--element-radius` (the corners of its sections and cells). Set in a named style, these make a house style for one place, as `<styles><club>--element-accent:#f2c335;--element-font:Georgia,serif;--element-radius:0;background:#080808;color:#f4f4f2</club></styles>`.
 
 Every other object sets both its background and its text colour, so it reads the same on a light or a dark theme. Keep that pairing when you change one.
 
