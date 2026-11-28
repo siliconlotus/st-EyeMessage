@@ -1,6 +1,6 @@
 // EyeMessage renderer. Pure functions, no SillyTavern imports, so node can test them (see test.mjs).
-import { escapeHtml, parseAttrs, inlineMarks, span } from './html.js';
-import { systemWindowBody } from './system-window.js';
+import { escapeHtml, parseAttrs, inlineMarks, safeAlign, safeColour, span, unescapeHtml, withStyle } from './html.js';
+import { structuredBody, builtIns, ownCss } from './structure.js';
 
 /**
  * The tags, each with the form shown to the model and what it is for.
@@ -10,11 +10,10 @@ const TAG_GUIDE = {
     sms: ['<sms from="Contact name">', 'a phone text, one tag per message. `from` is the sender as the reader\'s phone names them.'],
     dm: ['<dm app="App name" from="@handle" display_name="Display name">', 'a direct message inside an app, one tag per message. `from` is the account\'s handle. `display_name` is the name that account shows; give it on the account\'s first message in a thread.'],
     chat: ['<chat title="Channel or stream">', 'a live text chat with many participants: a stream chat, a guild channel, a comment thread. Inside it, one line per message, written `Name: message`.'],
-    email: ['<email from="Sender" subject="Subject line">', 'an email.'],
-    letter: ['<letter from="Sender">', 'anything on paper: a letter, a note, a card, a receipt.'],
+    email: ['<email from="Sender" subject="Subject line">', 'an email. An optional `attachments` names the files on it, with commas between.'],
+    letter: ['<letter from="Sender">', 'anything on paper: a letter, a note, a card, a receipt. It is drawn handwritten; mark printed paper, such as a receipt or a typed letter, with `typed`: `<letter from="Harbour Café" typed>`.'],
     sign: ['<sign>', 'anything posted or painted: a sign, a placard, a chalkboard.'],
-    screen: ['<screen title="What it is">', 'anything else on a display: a terminal, a feed, an app.'],
-    system_window: ['<system_window title="What it shows">', 'a window shown by a game-like System the world itself runs: a status screen, a notification, a quest, a skill gained. Write plain lines, or give it structure with nested tags of your own naming; a tag with `value` and `max` is drawn as a bar.'],
+    screen: ['<screen title="What it is">', 'anything else on a display: a terminal, a feed, an app, a record, the status window of a game-like System. A record, form or listing gets structure, with nested tags of your own naming; a tag with `value` and `max` is drawn as a bar, as a ring with `chart=ring`, standing up with `chart=column`, or in blocks with `chart=segments`. A terminal or a running feed stays as plain lines.'],
 };
 
 /** Tags the model may write. */
@@ -23,13 +22,8 @@ export const TAGS = Object.keys(TAG_GUIDE);
 /** What each tag is called in the settings panel. */
 export const TAG_LABELS = {
     sms: 'Texts', dm: 'App messages', chat: 'Live chats', email: 'Emails', letter: 'Letters and notes',
-    sign: 'Signs', screen: 'Screens', system_window: 'System windows',
+    sign: 'Signs', screen: 'Screens',
 };
-
-/** Tags the model is not told about unless they are switched on: they suit only some worlds. */
-const OFF_UNLESS_CHOSEN = new Set(['system_window']);
-/** Whether the model is told about a tag when nothing has been chosen for it. */
-export const taughtByDefault = tag => !OFF_UNLESS_CHOSEN.has(tag);
 
 const MESSAGES_EXAMPLE = `Example, two conversations in one turn:
 Two people answer while the kettle is still filling.
@@ -37,48 +31,92 @@ Two people answer while the kettle is still filling.
 <sms from="Mara">Ten minutes, I swear.</sms></thread>
 <thread><sms from="Tobias">Call me when you are free.</sms></thread>`;
 
-const SYSTEM_WINDOW_EXAMPLE = `Example, a system window with structure:
-<system_window title="Status">
-<identity><name>Alice</name><class>Wanderer</class><level>4</level></identity>
-<vitals><hp value="42" max="60"/><mp value="18" max="18"/></vitals>
-<attributes><str>7</str><agi>11</agi><int>14</int></attributes>
-<skills><skill level="2">Appraisal</skill><skill level="1" new="true">Night Sight</skill></skills>
-<quest_log><quest status="active">Clear the cellar<reward>40 silver</reward></quest></quest_log>
-</system_window>`;
+const SCREEN_EXAMPLE = `Example, a screen with structure:
+<screen title="MV Corrigan · Engine Room" class="console">
+<heading>214°</heading><speed>11.2 kn</speed><rudder>3° port</rudder>
+<engines><port value=88 max=100 chart=ring color="red" badge="Vibration"/><starboard value=74 max=100 chart=ring color="#3fc1ff"/></engines>
+<tanks><fuel value=62 max=100 chart=column color="color-mix(in srgb, orange 70%, gold)"/><ballast value=40 max=100 chart=column color="blue"/><fresh_water value=85 max=100 chart=column color="#5fe0c0b3"/><lube_oil value=18 max=100 chart=column color="red" alert="Low"/></tanks>
+<log><entry time="04:10">Bilge pump 2 cycled twice in ten minutes</entry><entry time="05:30">Chief Okafor took the watch</entry></log>
+</screen>`;
+
+const HUD_EXAMPLE = `Example, a screen in a built-in theme, with built-in classes and one style of its own:
+<screen title="ISV KESTREL // BRIDGE" class="hud">
+<styles><hot>color:#ff3b3b;text-shadow:0 0 8px #ff3b3b</hot></styles>
+<condition class="banner pulse" color="#ff3b3b" alert="Hull breach · Deck 4">Red alert</condition>
+<shields><fore value=34 max=100 chart=ring color="#ff3b3b"/><aft value=91 max=100 chart=ring/><port value=78 max=100 chart=ring/><starboard value=80 max=100 chart=ring/></shields>
+<power><engines value=6 max=10 chart=column/><weapons value=9 max=10 chart=column color="#ff3b3b"/><shields value=8 max=10 chart=column color="#5ab0ff"/><life_support value=3 max=10 chart=column color="#ffb000" alert="Rerouted"/></power>
+<hull value=62 max=100 chart=segments color="#ffb000"/>
+<targeting color="#ff3b3b"><contact class="hot flicker">Raider</contact><range>4.2 km</range><bearing>032°</bearing><lock value=87 max=100 chart=segments badge="Locked"/></targeting>
+<comms><msg time="T+00:14">Raider hailing on open channel</msg><msg time="T+00:31">Damage control team to deck 4</msg></comms>
+</screen>`;
 
 /**
  * The instructions injected into the system prompt, for the tags that are switched on. Each tag brings
  * its own line, and its example where it has one; the notes on threads come with texts and app messages.
  * {{user}} is filled in by SillyTavern.
- * @param {string[]} [tags] The tags to teach. Defaults to those taught unless switched off.
+ * @param {string[]} [tags] The tags to teach. Defaults to all of them.
+ * @param {{hud?: boolean, styles?: string[]}} [options] hud: also show the advanced HUD example with the screen one.
+ *   styles: the names of the styles already defined in the chat.
  * @returns {string} Empty when no tag is taught.
  */
-export function instructionFor(tags = TAGS.filter(taughtByDefault)) {
+export function instructionFor(tags = TAGS, { hud = false, styles = [] } = {}) {
+    // Names from the chat go into the system prompt, so only plain short ones, and not too many.
+    const defined = styles.filter(name => /^[a-z][\w-]{0,31}$/i.test(name)).slice(0, 20).map(name => `\`${name}\``).join(', ');
     const taught = TAGS.filter(tag => tags.includes(tag));
     if (!taught.length) return '';
     const has = tag => taught.includes(tag);
     const messages = has('sms') || has('dm');
     return [
         `[Diegetic Artifacts: Tags]
-When someone in the scene reads or looks at a written or on-screen thing, give its words inside one of these tags, where a blockquote would otherwise go. The interface draws the object. Write no HTML, styling or markdown for it.`,
+When someone in the scene reads or looks at a written or on-screen thing, give its words inside one of these tags, where a blockquote would otherwise go. The interface draws the object. Write no HTML or markdown for it.`,
         taught.map(tag => `- \`${TAG_GUIDE[tag][0]}\` ${TAG_GUIDE[tag][1]}`).join('\n'),
+        has('screen') && `In a screen's structure, put each fact in a tag of its own. A \`badge\` or \`alert\` attribute is a short modifier drawn as a lozenge beside the value it is on. Its tags, and the screen itself, may carry \`color\` (a plain name such as \`red\`, hex, which may carry alpha, or a CSS colour function such as \`color-mix()\` or \`hsl()\`), \`align\` and \`style\` (inline CSS) where the display itself would show it. Colours otherwise follow the reader's theme, light or dark, so a \`style\` that sets a background sets the text colour with it. \`color\` on the screen is its accent, \`align\` there places its title, and \`title-style\` styles it. \`section-style\` on the screen, or on a section, styles every section inside it. \`class\` takes built-in looks, combined as \`class=\"banner pulse\"\` and coloured by the tag's \`color\`: \`banner\`, \`glow\`, \`pulse\`, \`blink\`, \`flicker\`, \`cut\`, \`brackets\`, \`scanlines\`, \`ticks\` (round rings) and \`caps\`. On the screen it also takes a theme: \`hud\`, \`console\`, \`terminal\` or \`parchment\`. A \`<styles>\` tag in a screen names your own CSS for the whole chat, as \`<styles><warning>color:red;font-weight:bold</warning></styles>\`, for this and any later tag to use with \`class=\"warning\"\`: define a style once, and never repeat it.`,
         messages && `Texts and app messages go inside \`<thread>\`, one \`<thread>\` per conversation, with its messages in order. A different person or group is a different thread. An app thread can name its app once, as \`<thread app="App name">\`. A group conversation that has a name carries it as \`<thread title="Group name">\`. A message can optionally carry a timestamp, as \`time="9:41 PM"\`. A plain line between messages in a thread is shown as a note, such as a date or \`Seen 2:14 PM\`.`,
+        has('email') && `An exchange of several emails goes inside one \`<thread>\`, in order.`,
         messages && `{{user}}'s own sent messages appear in the history as \`<sms to="Recipient">\` or \`<dm to="Recipient">\`, with {{user}}'s own handle as \`from\` where one is used.`,
         `Inside the tag are only the object's own words, in its writer's voice and habits. Narration and reactions stay outside it, in plain prose. A turn in which nobody reads anything uses none of these tags.`,
         has('sms') && MESSAGES_EXAMPLE,
-        has('system_window') && SYSTEM_WINDOW_EXAMPLE,
+        has('screen') && defined && `Styles already defined in this chat, to use with \`class\`: ${defined}.`,
+        has('screen') && SCREEN_EXAMPLE,
+        has('screen') && hud && HUD_EXAMPLE,
     ].filter(Boolean).join('\n\n');
 }
 
 /** Number of sender hues. style.css defines one `.custom-eye-hue-N` class per bucket. */
 export const HUES = 24;
 
+/** Tags no longer taught that older chats hold, and the tag each is drawn as. */
+const FORMER = { system_window: 'screen' };
+
 // The attribute part allows ">" inside a quoted value, e.g. subject="Q3 > Q2".
-const TAG_RE = new RegExp(`<(${[...TAGS, 'thread'].join('|')})\\b((?:[^>"']|"[^"]*"|'[^']*')*)>([\\s\\S]*?)</\\1>`, 'gi');
+const TAG_RE = new RegExp(`<(${[...TAGS, 'thread', ...Object.keys(FORMER)].join('|')})\\b((?:[^>"']|"[^"]*"|'[^']*')*)>([\\s\\S]*?)</\\1>`, 'gi');
 const CHAT_LINE = /^([^:\n]{1,32}?):\s+(\S.*)$/;
 
+// Code: a fenced block, or a span in backticks on one line. A tag in code is quoted, not written: "use the `<screen>` tag".
+const CODE = /(```|~~~)[\s\S]*?\1|(`+)[^`\n]+?\2(?!`)/g;
+
+/**
+ * The tags in a text, outside code, each as [whole, tag, attributes, body] with its index, as matchAll gives them.
+ * Matching runs on a copy with the "<" in code hidden; what is returned is the text itself.
+ */
+function* tagsIn(text) {
+    const masked = text.includes('`') || text.includes('~~~') ? text.replace(CODE, code => code.replace(/</g, '\u0001')) : text;
+    for (const m of masked.matchAll(TAG_RE)) {
+        const end = m.index + m[0].length;
+        const bodyStart = end - m[1].length - 3 - m[3].length;
+        const found = [text.slice(m.index, end), m[1], text.slice(m.index + 1 + m[1].length, bodyStart - 1), text.slice(bodyStart, end - m[1].length - 3)];
+        found.index = m.index;
+        yield found;
+    }
+}
+
+// The address an email sender may have after the name: "Bob <bob@example.com>".
+const ADDRESS = /(?<=\S)\s*<([^<>\s]+@[^<>\s]+)>\s*$/;
+/** A name as it reads, without that address: "Bob <bob@example.com>" is Bob. */
+const plainName = name => unescapeHtml(name).replace(ADDRESS, '');
+
 /** "Bob Smith", "bob smith " and "@Bob_Smith" are one sender. Also used as the CSS key for a name. */
-export const normaliseName = name => name.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+export const normaliseName = name => plainName(name).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
 
 /** Stable hue bucket for a sender name: FNV-1a over the normalised name, modulo the bucket count. */
 export function hueOf(name) {
@@ -126,7 +164,10 @@ const threadTitle = t => t.title || t.name || t.display_name || t['display-name'
 function readMessage(rawTag, rawAttrs, thread = {}) {
     const a = parseAttrs(rawAttrs);
     let tag = rawTag.toLowerCase();
+    tag = FORMER[tag] ?? tag;
     a.app ||= thread.app;
+    // A letter is handwritten; `typed`, a bare word, marks one that is printed.
+    if (tag === 'letter' && /(?:^|\s)typed(?=\s|$)/i.test(rawAttrs.replace(/"[^"]*"|'[^']*'/g, ''))) a.typed ||= 'typed';
     if (isPhone(a.app)) {
         a.app = '';
         if (tag === 'dm') tag = 'sms';
@@ -164,6 +205,7 @@ function writer(a, own, userName, names) {
         : span('eye-who', escapeHtml(base));
     return {
         outgoing,
+        display,
         who: outgoing ? 'out' : `in|${key}`,
         sender: senderMarks(outgoing ? '' : a.from || ''),
         head: span('eye-head', label + span('eye-time', escapeHtml(a.time || ''))),
@@ -187,28 +229,145 @@ function panelOpen(tag, app, to, title = '') {
     return `<div class="${classes.filter(Boolean).join(' ')}">${span('eye-thread', line)}`;
 }
 
-/** A <thread>: everything inside is one conversation, drawn on one panel. Text between messages becomes a note line. */
+/** Who an email is from and to: a badge with the sender's initial, the name, the address, the To line and the time. */
+function emailHead(a, w, userName) {
+    const raw = a.from || (w.outgoing ? userName : '');
+    const name = w.display || plainName(raw);
+    const address = unescapeHtml(raw).match(ADDRESS)?.[1] ?? (w.display ? raw : '');
+    const initial = name.match(/[\p{L}\p{N}]/u)?.[0].toUpperCase();
+    const badge = initial ? `<span class="eye-badge" aria-hidden="true">${escapeHtml(initial)}</span>` : '';
+    // The time comes first so that it floats beside the name, and the lines under it keep the full width.
+    const names = span('eye-time', escapeHtml(a.time || '')) + span('eye-who', escapeHtml(name)) + span('eye-handle', escapeHtml(address))
+        + span('eye-to', a.to ? `To ${escapeHtml(people(a.to).map(plainName).join(', '))}` : '');
+    return span('eye-head', badge + span('eye-names', names));
+}
+
+/** A subject without the RE and FWD in front. */
+const withoutPrefixes = subject => subject.replace(/^(?:(?:re|fwd?)\s*:\s*)+/i, '');
+
+/** The subject, with a leading RE or FWD in a pill. One is taken: "FWD: Re: Lease" keeps its "Re:". */
+function emailSubject(subject) {
+    const [, prefix, rest] = subject.match(/^(re|fwd?)\s*:\s*(\S.*)$/i) ?? ['', '', subject];
+    return span('eye-re', prefix.toUpperCase()) + escapeHtml(rest);
+}
+
+/** An email's paragraphs, with a closing line such as "— Frank" apart from them, and its attachments. */
+function emailBody(raw, attachments = '') {
+    const text = inlineMarks(raw.trim());
+    const [, main, signoff] = text.match(/^([\s\S]*\S)\s*\n[ \t]*((?:[—–]|--).{1,60})$/) ?? ['', text, ''];
+    // SillyTavern squashes a blank line made of <br>s, so each paragraph is a block of its own.
+    const paragraphs = main.split(/\r?\n(?:[ \t]*\r?\n)+/).map(p => span('eye-par', p.replace(/\r?\n/g, '<br>'))).join('');
+    const files = people(attachments).map(f => span('eye-file', escapeHtml(f))).join('');
+    return span('eye-body', paragraphs + span('eye-par eye-signoff', signoff)) + span('eye-files', files);
+}
+
+/** The start of an object's container. An object drawn in the theme's colours may override them, with `color` and `style`. */
+function boxOpen(tag, a, w, themed) {
+    const classes = ['eye', `eye-${tag}`, w.outgoing ? 'eye-out' : 'eye-in', w.sender.cls, a.app && `eye-app-${normaliseName(a.app)}`, ...(tag === 'screen' ? builtIns(a) : []), tag === 'letter' && a.typed && 'eye-typed'];
+    const accent = themed && safeColour(a.color ?? a.colour);
+    return withStyle(`<div class="${classes.filter(Boolean).join(' ')}"${w.sender.data}>`, accent && `--element-accent:${accent}`, themed && (tag === 'screen' ? ownCss(a) : a.style));
+}
+
+const subjectOf = a => a.subject || a.title || '';
+/** What an email is about, without the RE and FWD in front: how a reply is told from an email on something else. */
+const topicOf = a => withoutPrefixes(subjectOf(a)).toLowerCase();
+
+/**
+ * Emails that follow each other, as one card; one alone is a card by itself. An email repeats no subject the
+ * card already shows. `group` is the title of the thread they are in.
+ * @param {{a: Record<string, string>, w: ReturnType<typeof writer>, rawBody: string}[]} emails
+ */
+function emailsHtml(emails, userName, group = '') {
+    let topic = '';
+    const boxes = emails.map(({ a, w, rawBody }, i) => {
+        const top = i || withoutPrefixes(group).toLowerCase() === topicOf(a) ? '' : span('eye-thread', span('eye-group', escapeHtml(group)));
+        const repeats = i > 0 && (!topicOf(a) || topicOf(a) === topic);
+        topic = topicOf(a) || topic;
+        const title = repeats ? '' : span('eye-title', emailSubject(subjectOf(a)));
+        return `${boxOpen('email', a, w, true)}${top}${title}${emailHead(a, w, userName)}${emailBody(rawBody, a.attachments ?? a.attachment)}</div>`;
+    }).join('');
+    return `\n\n${emails.length > 1 ? `<div class="eye-mails">${boxes}</div>` : boxes}\n\n`;
+}
+
+/** Anything else that is not a text or an app message, in a container of its own. */
+function objectHtml(tag, a, rawBody, w, own, group = '') {
+    if (tag === 'chat') {
+        // `title` is the channel's own name. `channel` only says what kind it is ("party", "whisper"),
+        // which is all a game's chat command knows; the heading is then made from that.
+        const kind = (a.channel || '').replace(/^./, c => c.toUpperCase());
+        const heading = a.title || group || [kind, a.to && `to ${people(a.to).join(', ')}`].filter(Boolean).join(' ');
+        return `\n\n<div class="eye eye-chat">${span('eye-title', escapeHtml(heading))}${chatRows(rawBody, own)}</div>\n\n`;
+    }
+    const top = span('eye-thread', span('eye-group', escapeHtml(group))
+        + span('eye-to', w.outgoing && a.to ? `To ${escapeHtml(people(a.to).join(', '))}` : ''));
+    const structured = tag === 'screen';
+    const align = structured && safeAlign(a.align ?? a['text-align']);
+    const title = withStyle(span('eye-title', escapeHtml(subjectOf(a))), align && `text-align:${align}`, structured && a['title-style']);
+    // A screen may hold nested tags; it is then drawn as a hierarchy, not as lines.
+    const nested = structured ? structuredBody(rawBody, { sectionStyle: a['section-style'] }) : null;
+    return `\n\n${boxOpen(tag, a, w, structured)}${top}${w.head}${title}${nested ?? bodyHtml(rawBody)}</div>\n\n`;
+}
+
+/**
+ * A <thread>: the messages inside are one conversation, drawn on one panel. Text between them becomes a note
+ * line. Emails that follow each other are one card, and any other object stands on its own; both end the panel.
+ */
 function threadPanel(rawAttrs, rawBody, own, userName, names) {
     const t = parseAttrs(rawAttrs);
+    let out = '';
     let html = '';
     let first = null;
     let prevWho = null;
     let last = 0;
-    const note = (text) => { if (text.trim()) { html += noteHtml(text); prevWho = null; } };
-    for (const m of rawBody.matchAll(TAG_RE)) {
+    let emails = [];
+    let group = threadTitle(t); // on the first object; a panel always carries it
+    const closeEmails = () => {
+        if (!emails.length) return;
+        out += emailsHtml(emails, userName, group);
+        emails = [];
+        group = '';
+    };
+    const note = (text) => { if (text.trim()) { closeEmails(); html += noteHtml(text); prevWho = null; } };
+    const closePanel = (besideObject = !!out) => {
+        if (!html) return;
+        // Plain lines between emails, with no message among them, need no panel.
+        if (!first && besideObject) {
+            out += `\n\n<div>${html}</div>\n\n`;
+            html = '';
+            return;
+        }
+        group = '';
+        const app = isPhone(t.app) ? '' : t.app || first?.a.app || '';
+        out += `\n\n${panelOpen(first?.tag ?? (app ? 'dm' : 'sms'), app, first?.outgoing ? first.a.to : '', threadTitle(t))}${html}</div>\n\n`;
+        html = '';
+        first = prevWho = null;
+    };
+    for (const m of tagsIn(rawBody)) {
         note(rawBody.slice(last, m.index));
         last = m.index + m[0].length;
-        if (!MESSAGE_TAGS.has(m[1].toLowerCase())) { note(m[3]); continue; }
-        const [tag, a] = readMessage(m[1], m[2], t);
+        // The thread's app is its messages' app.
+        const [tag, a] = readMessage(m[1], m[2], MESSAGE_TAGS.has(m[1].toLowerCase()) ? t : {});
         const w = writer(a, own, userName, names);
+        if (!MESSAGE_TAGS.has(tag)) {
+            closePanel(true);
+            if (tag === 'email') {
+                emails.push({ a, w, rawBody: m[3] });
+                continue;
+            }
+            closeEmails();
+            out += objectHtml(tag, a, m[3], w, own, group);
+            group = '';
+            continue;
+        }
+        closeEmails();
         first ??= { tag, a, outgoing: w.outgoing };
         html += bubble(tag, a, m[3], w, prevWho);
         prevWho = w.who;
     }
     note(rawBody.slice(last));
-    if (!html) return '';
-    const app = isPhone(t.app) ? '' : t.app || first?.a.app || '';
-    return `\n\n${panelOpen(first?.tag ?? (app ? 'dm' : 'sms'), app, first?.outgoing ? first.a.to : '', threadTitle(t))}${html}</div>\n\n`;
+    closePanel();
+    closeEmails();
+    return out;
 }
 
 /**
@@ -217,6 +376,7 @@ function threadPanel(rawAttrs, rawBody, own, userName, names) {
  * Texts and app messages are drawn as conversations, each on its own panel. A <thread> is one conversation.
  * Messages outside a <thread> are grouped by who is in them: one app and the people other than the user,
  * for as long as such messages follow each other. A message with different people starts a new panel.
+ * Emails outside a <thread> that follow each other on one subject share a card.
  *
  * Each container is emitted on a single line with blank lines around it, so Markdown passes it through as
  * one block. Class names carry no `custom-` prefix: SillyTavern's sanitiser adds it.
@@ -230,9 +390,15 @@ export function renderArtifacts(mes, own = new Set(), userName = '') {
     let last = 0;
     const names = new Map(); // display names given so far in this message, by handle
     let open = null; // the panel being filled with messages that stand outside a <thread>: { key, who }
-    const close = () => { if (open) { out += '</div>\n\n'; open = null; } };
+    let emails = []; // emails outside a <thread> that go on one card
+    const close = () => {
+        if (open) out += '</div>\n\n';
+        if (emails.length) out += emailsHtml(emails, userName);
+        open = null;
+        emails = [];
+    };
 
-    for (const match of mes.matchAll(TAG_RE)) {
+    for (const match of tagsIn(mes)) {
         const [whole, rawTag, rawAttrs, rawBody] = match;
         const between = mes.slice(last, match.index);
         last = match.index + whole.length;
@@ -247,24 +413,18 @@ export function renderArtifacts(mes, own = new Set(), userName = '') {
         const app = a.app || '';
         const w = writer(a, own, userName, names);
 
-        if (tag === 'chat') {
-            close();
-            // `title` is the channel's own name. `channel` only says what kind it is ("party", "whisper"),
-            // which is all a game's chat command knows; the heading is then made from that.
-            const kind = (a.channel || '').replace(/^./, c => c.toUpperCase());
-            const heading = a.title || [kind, a.to && `to ${people(a.to).join(', ')}`].filter(Boolean).join(' ');
-            out += `${between}\n\n<div class="eye eye-chat">${span('eye-title', escapeHtml(heading))}${chatRows(rawBody, own)}</div>\n\n`;
+        if (tag === 'email') {
+            const joins = emails.length && topicOf(a) && topicOf(a) === topicOf(emails[0].a) && !between.trim();
+            if (!joins) {
+                close();
+                out += between;
+            }
+            emails.push({ a, w, rawBody });
             continue;
         }
         if (!MESSAGE_TAGS.has(tag)) {
             close();
-            const classes = ['eye', `eye-${tag}`, w.outgoing ? 'eye-out' : 'eye-in', w.sender.cls, app && `eye-app-${normaliseName(app)}`];
-            const recipient = span('eye-thread', span('eye-to', w.outgoing && a.to ? `To ${escapeHtml(people(a.to).join(', '))}` : ''));
-            const title = span('eye-title', escapeHtml(a.subject || a.title || ''));
-            // A system window may hold nested tags; it is then drawn as a hierarchy, not as lines.
-            const nested = tag === 'system_window' ? systemWindowBody(rawBody) : null;
-            const body = nested ?? bodyHtml(rawBody);
-            out += `${between}\n\n<div class="${classes.filter(Boolean).join(' ')}"${w.sender.data}>${recipient}${w.head}${title}${body}</div>\n\n`;
+            out += between + objectHtml(tag, a, rawBody, w, own);
             continue;
         }
 
@@ -283,14 +443,15 @@ export function renderArtifacts(mes, own = new Set(), userName = '') {
 }
 
 /**
- * Lists who appears in a message's tags, for the colour picker.
+ * Lists who appears in a message's tags, for the colour picker. Only where a colour is drawn: on texts, app
+ * messages, emails and live chats.
  * `kind` is "sender" for a `from` on a message tag and "chat" for a name in a live chat.
  * @returns {{name: string, kind: 'sender'|'chat'}[]}
  */
 export function collectContacts(mes) {
     const found = [];
     if (!mes || !mes.includes('<')) return found;
-    for (const [, rawTag, rawAttrs, rawBody] of mes.matchAll(TAG_RE)) {
+    for (const [, rawTag, rawAttrs, rawBody] of tagsIn(mes)) {
         if (rawTag.toLowerCase() === 'thread') {
             found.push(...collectContacts(rawBody));
         } else if (rawTag.toLowerCase() === 'chat') {
@@ -298,9 +459,9 @@ export function collectContacts(mes) {
                 const m = line.trim().match(CHAT_LINE);
                 if (m) found.push({ name: m[1].trim(), kind: 'chat' });
             }
-        } else {
+        } else if (/^(?:sms|dm|email)$/i.test(rawTag)) {
             const from = parseAttrs(rawAttrs).from;
-            if (from) found.push({ name: from, kind: 'sender' });
+            if (from) found.push({ name: plainName(from), kind: 'sender' });
         }
     }
     return found;
@@ -314,7 +475,7 @@ export function collectContacts(mes) {
 const WORD = String.raw`[\p{L}\p{N}\p{Extended_Pictographic}\u200D\uFE0F_.'’-]+`;
 const RECIPIENT = String.raw`(@?${WORD}(?: (?!(?:on|via|as) )${WORD}){0,2})`;
 const APP = String.raw`(?: (?:on|via) ((?!as )${WORD}(?: (?!as )${WORD})?))?`;
-const AS = String.raw`(?: as (@?${WORD}))?`;
+const AS = String.raw`(?: (?:as|from(?= @)) (@?${WORD}))?`;
 // keyword, then everything up to the colon that ends the heading, then the message.
 // The heading may hold one clock colon ("Bob 10:29PM:").
 // With no heading at all ("email: thanks") the line answers the most recent conversation of its kind.
@@ -358,7 +519,7 @@ function buildTag(kind, { from, to, app, subject, time }, body) {
 }
 
 /** The subject of a reply to an email: the same subject under one "Re:". */
-const replySubject = prev => prev.subject ? `Re: ${prev.subject.replace(/^(?:(?:re|fwd?)\s*:\s*)+/i, '')}` : '';
+const replySubject = prev => prev.subject ? `Re: ${withoutPrefixes(prev.subject)}` : '';
 
 /**
  * Reads one typed line. Returns null when it is prose.
@@ -410,10 +571,13 @@ export function conversationsIn(mes, own = new Set()) {
         const unique = names.filter((n, i) => names.findIndex(x => normaliseName(x) === normaliseName(n)) === i);
         if (unique.length) found.push({ kind, to: unique.join(', '), app: app || '', subject: subject || '' });
     };
-    for (const [, rawTag, rawAttrs, rawBody] of mes.matchAll(TAG_RE)) {
+    for (const [, rawTag, rawAttrs, rawBody] of tagsIn(mes)) {
         if (rawTag.toLowerCase() === 'thread') {
             const t = parseAttrs(rawAttrs);
-            const inside = [...rawBody.matchAll(TAG_RE)].filter(m => MESSAGE_TAGS.has(m[1].toLowerCase())).map(m => readMessage(m[1], m[2], t));
+            const all = [...tagsIn(rawBody)].map(m => readMessage(m[1], m[2], MESSAGE_TAGS.has(m[1].toLowerCase()) ? t : {}));
+            // An email in a thread is answered to its sender, like any other.
+            for (const [tag, a] of all) if (tag === 'email') add(tag, others(a), a.app, a.subject);
+            const inside = all.filter(([tag]) => MESSAGE_TAGS.has(tag));
             if (!inside.length) continue;
             // A group that has a name is answered by that name.
             const to = threadTitle(t) ? [threadTitle(t)] : inside.flatMap(([, a]) => others(a));
@@ -429,7 +593,7 @@ export function conversationsIn(mes, own = new Set()) {
 /**
  * Turns the typed shorthand in a user message into tags.
  * The line starts with "text" (or "sms"), "dm" or "email", then the recipient, then a colon.
- * A clock time may follow the recipient. Only "dm" takes "on App" (or "via App") and "as @screenname".
+ * A clock time may follow the recipient. Only "dm" takes "on App" (or "via App") and "as @screenname" (or "from @screenname").
  *   text Bob: running late                             -> <sms to="Bob">running late</sms>
  *   text bob: running late                             -> the same, once Bob is a name in the chat's messages
  *   text Bob 10:29PM: hey                              -> <sms to="Bob" time="10:29 PM">hey</sms>
@@ -463,7 +627,7 @@ export function expandShorthand(mes, handles = {}, canon = () => null, info = {}
     // A line inside a tag that is already there belongs to that message, so only the text between tags is read.
     let out = '';
     let at = 0;
-    for (const match of mes.matchAll(TAG_RE)) {
+    for (const match of tagsIn(mes)) {
         out += expand(mes.slice(at, match.index)) + match[0];
         at = match.index + match[0].length;
     }
@@ -525,7 +689,7 @@ export const ANY_CHANNEL = '#';
 export function channelsIn(mes) {
     const found = [];
     if (!mes || !mes.includes('<')) return found;
-    for (const [, rawTag, rawAttrs] of mes.matchAll(TAG_RE)) {
+    for (const [, rawTag, rawAttrs] of tagsIn(mes)) {
         const title = rawTag.toLowerCase() === 'chat' && parseAttrs(rawAttrs).title;
         if (title) found.push(title);
     }
@@ -606,7 +770,7 @@ export function wrapThreads(text) {
         if (run?.count > 1) out = `${out.slice(0, run.start)}<thread>${out.slice(run.start)}</thread>`;
         run = null;
     };
-    for (const m of text.matchAll(TAG_RE)) {
+    for (const m of tagsIn(text)) {
         const between = text.slice(at, m.index);
         at = m.index + m[0].length;
         const a = parseAttrs(m[2]);
@@ -627,7 +791,7 @@ export function wrapThreads(text) {
 export function namesIn(mes) {
     const found = [];
     if (!mes || !mes.includes('<')) return found;
-    for (const [, rawTag, rawAttrs, rawBody] of mes.matchAll(TAG_RE)) {
+    for (const [, rawTag, rawAttrs, rawBody] of tagsIn(mes)) {
         if (rawTag.toLowerCase() === 'thread') { found.push(...namesIn(rawBody)); continue; }
         const a = parseAttrs(rawAttrs);
         found.push(...[a.from, ...people(a.to)].filter(Boolean));
@@ -770,15 +934,68 @@ export function autoHex(name) {
 const CHAT_PANEL = [24, 24, 27];
 
 /**
- * The CSS rule for one picked colour. The pick is the bubble background; the text colour on it is
+ * The CSS rule for one picked colour, for a name's key or several. The pick is the bubble background; the text colour on it is
  * black or white, whichever reads better; the name colour for the dark live chat panel is the pick,
  * lightened if it would be too dark to read there.
  */
-export function overrideRule(key, hex) {
+export function overrideRule(keys, hex) {
     const rgb = hexToRgb(hex);
     const fg = contrast(rgb, [255, 255, 255]) >= contrast(rgb, [0, 0, 0]) ? '#ffffff' : '#000000';
     let nick = rgb;
     for (let i = 0; i < 20 && contrast(nick, CHAT_PANEL) < 4.5; i++) nick = nick.map(v => v + (255 - v) * 0.15);
-    const selector = `.mes_text [data-from="${key.replace(/["\\]/g, '\\$&')}"]`;
-    return `${selector} { --eye-bg: ${hex}; --eye-fg: ${fg}; --eye-name: ${fg}; --eye-nick: ${rgbToHex(nick)}; }`;
+    return `${fromSelector(keys)} { --element-bg: ${hex}; --element-fg: ${fg}; --element-name: ${fg}; --element-nick: ${rgbToHex(nick)}; }`;
+}
+
+const fromSelector = keys => [keys].flat().map(key => `.mes_text [data-from="${key.replace(/["\\]/g, '\\$&')}"]`).join(', ');
+
+/**
+ * The CSS rules for the picked colours, and for aliases: all of a person's names are drawn in the main
+ * name's colour, picked or automatic.
+ * @param {{colors: Record<string, string>, aliases: Record<string, string>}} store
+ * @returns {string[]}
+ */
+export function pickRules({ colors, aliases }) {
+    const people = new Map(Object.keys(colors).filter(key => !Object.hasOwn(aliases, key)).map(key => [key, []]));
+    for (const [key, main] of Object.entries(aliases)) people.set(main, [...people.get(main) ?? [], key]);
+    return [...people].map(([main, others]) => {
+        if (/^#[0-9a-f]{6}$/i.test(colors[main] ?? '')) return overrideRule([main, ...others], colors[main]);
+        return others.length ? `${fromSelector(others)} { --element-hue: ${hueOf(main) * (360 / HUES)}; }` : '';
+    }).filter(Boolean);
+}
+
+// ---- App icons ----
+
+/** The app of each conversation in a message that shows one, for the settings panel. */
+export function appsIn(mes) {
+    if (!mes?.includes('<')) return [];
+    const found = [];
+    for (const [, rawTag, rawAttrs, rawBody] of tagsIn(mes)) {
+        const tag = rawTag.toLowerCase();
+        if (tag !== 'thread' && !MESSAGE_TAGS.has(tag)) continue;
+        const app = parseAttrs(rawAttrs).app || (tag === 'thread' ? appsIn(rawBody)[0] : '');
+        if (app && !isPhone(app)) found.push(app);
+    }
+    return found;
+}
+
+/** An icon as typed: a Font Awesome name ("fa-camera", without any style class), or else its first character. */
+export function readIcon(typed = '') {
+    const fa = typed.match(/\bfa-(?!(?:solid|brands|regular)\b)[\w-]+/i);
+    if (fa) return fa[0].toLowerCase();
+    const [first] = new Intl.Segmenter().segment(typed.trim());
+    return first?.segment ?? '';
+}
+
+/**
+ * The CSS rule for one app's icon, which takes the place of the dot before the app's name.
+ * @param {string} glyph The character to draw.
+ * @param {boolean} [fa] Whether it is a Font Awesome glyph. Brand icons are in a font of their own, which has
+ *   no bold; the solid font is tried first.
+ */
+export function iconRule(key, glyph, fa = false) {
+    const app = normaliseName(key);
+    if (!app || !glyph) return '';
+    const font = fa ? ' font-family: "Font Awesome 6 Free", "Font Awesome 6 Brands"; font-weight: 900; font-synthesis: none;' : '';
+    return `.custom-eye-app-${app} .custom-eye-app::before { content: ${JSON.stringify(glyph)}; width: auto; height: auto; border-radius: 0; `
+        + `background: none; color: var(--element-app-accent, currentColor); font-size: 1.2em; line-height: 1; letter-spacing: 0;${font} }`;
 }

@@ -1,18 +1,23 @@
-// EyeMessage: draws message and object tags (<thread>, <sms>, <dm>, <chat>, <email>, <letter>, <sign>, <screen>,
-// <system_window>) as styled objects in chat. The tags themselves are listed in render.js.
+// EyeMessage: draws message and object tags (<thread>, <sms>, <dm>, <chat>, <email>, <letter>, <sign>, <screen>)
+// as styled objects in chat. The tags themselves are listed in render.js.
 // The chat file and the prompt keep the plain tags; only the display changes. The look lives in style.css.
 import {
-    renderArtifacts, expandShorthand, typedHandles, conversationsIn, commandToTag, splitCommands, collectContacts, namesIn, channelsIn, channelKey, mergeChatBlocks, wrapThreads, ANY_CHANNEL, normaliseName, autoHex, overrideRule,
-    instructionFor, taughtByDefault, TAGS, TAG_LABELS,
+    renderArtifacts, expandShorthand, typedHandles, conversationsIn, commandToTag, splitCommands, collectContacts, namesIn, channelsIn, channelKey, mergeChatBlocks, wrapThreads, ANY_CHANNEL, normaliseName, autoHex, pickRules, appsIn, readIcon, iconRule,
+    instructionFor, TAGS, TAG_LABELS,
 } from './render.js';
-import { emptyStore, complete, personaIn, learnHandle, forgetHandle, rememberNames, mergeStores, copyStore, takeLegacy } from './store.js';
+import { allowOutsideImages } from './html.js';
+import { setChatStyles, stylesInChat, stylesForReply } from './structure.js';
+import { emptyStore, complete, personaIn, learnHandle, forgetHandle, rememberNames, mergeStores, copyStore, takeLegacy, personOf, linkAlias, unlinkAlias } from './store.js';
 
 const { messageFormatter, eventSource, eventTypes } = SillyTavern.getContext();
+// SillyTavern's own rule for outside media in the open chat, which it does not put in the context. If it moves,
+// images from other sites stay blocked.
+const { isExternalMediaAllowed = () => false } = await import('../../../chats.js').catch(() => ({}));
 
 // ---- Where things are remembered ----
-// Colours, the user's accounts and whether the instructions are injected are kept with the chat, in its metadata.
+// Colours, aliases, app icons, the user's accounts and whether the instructions are injected are kept with the chat, in its metadata.
 // A character's chats can share one set instead; that set is kept in the extension's settings under the
-// character, not in the card, so sharing a card does not carry it along. Nothing is kept for all chats.
+// character, not in the card, so sharing a card does not carry it along. Only saved styles are kept for all chats.
 
 const CHAT_KEY = 'eyemessage';
 
@@ -125,12 +130,41 @@ function moveLegacy() {
 }
 
 // ---- Drawing. Registered first, so a fault further down cannot stop it. ----
+// Saved styles are kept for every chat, in the extension's settings: any message may use one.
+const savedStyles = () => scope().ext.styles ?? '';
+/** The Author's Notes in effect: the chat's own and its character's. */
+function authorsNotes() {
+    const ctx = SillyTavern.getContext();
+    const avatar = ctx.characters?.[ctx.characterId]?.avatar?.replace(/\.[^.]*$/, '');
+    return [ctx.chatMetadata?.note_prompt, ...(ctx.extensionSettings.note?.chara ?? []).filter(note => avatar && note.name === avatar).map(note => note.prompt)]
+        .filter(Boolean);
+}
+
+// The saved styles, then those defined by <styles> anywhere in the open chat, for any message to use. Read again
+// when the chat, its length, a message or the saved styles change.
+let stylesRead = '';
+function readChatStyles() {
+    const { chatId, chat = [] } = SillyTavern.getContext();
+    const saved = savedStyles();
+    const key = `${chatId}:${chat.length}:${saved}`;
+    if (key === stylesRead) return;
+    stylesRead = key;
+    setChatStyles(stylesInChat(chat, saved));
+}
+for (const event of ['CHAT_CHANGED', 'MESSAGE_RECEIVED', 'MESSAGE_EDITED', 'MESSAGE_DELETED', 'MESSAGE_SWIPED', 'MESSAGE_UPDATED']) {
+    if (eventTypes[event]) eventSource.on(eventTypes[event], () => { stylesRead = ''; });
+}
 if (!messageFormatter) {
     console.warn('[EyeMessage] This SillyTavern has no messageFormatter hook; tags will not be drawn.');
 } else {
     // After the user's regex scripts, before Markdown and the sanitiser.
     messageFormatter.addHook(
-        (mes, ctx) => ctx.isReasoning ? mes : renderArtifacts(mes, ownNames(), personaName()),
+        (mes, ctx) => {
+            if (ctx.isReasoning) return mes;
+            allowOutsideImages(isExternalMediaAllowed());
+            readChatStyles();
+            return renderArtifacts(mes, ownNames(), personaName());
+        },
         { stage: messageFormatter.stage.AFTER_REGEX },
     );
 }
@@ -164,11 +198,12 @@ eventSource.on(eventTypes.MESSAGE_RECEIVED, collectNames);
 // ---- Telling the model about the tags ----
 // The text goes into the main prompt, in the system section, and is the same every turn.
 const IN_PROMPT = 0; // extension_prompt_types.IN_PROMPT in SillyTavern's script.js
-function setInstruction() {
+function setInstruction(type) {
     const { setExtensionPrompt, substituteParams } = SillyTavern.getContext();
-    const { inject, tags } = store();
-    const taught = TAGS.filter(tag => tags[tag] ?? taughtByDefault(tag));
-    setExtensionPrompt('eyemessage', inject ? substituteParams(instructionFor(taught)) : '', IN_PROMPT, 0);
+    const { inject, tags, hud } = store();
+    const taught = TAGS.filter(tag => tags[tag] ?? true);
+    const styles = [...stylesForReply(SillyTavern.getContext().chat ?? [], type, savedStyles(), authorsNotes()).keys()];
+    setExtensionPrompt('eyemessage', inject ? substituteParams(instructionFor(taught, { hud, styles })) : '', IN_PROMPT, 0);
 }
 // SillyTavern clears extension prompts when the chat changes, so it is set again then and before each generation.
 eventSource.on(eventTypes.GENERATION_STARTED, setInstruction);
@@ -261,36 +296,65 @@ function registerCommands() {
     }
 }
 
-// ---- Contact colours ----
+// ---- Contact colours, aliases and app icons ----
 
-/** Writes the picked colours as CSS variables. Messages already on screen pick them up without redrawing. */
-function applyColours() {
+/** The character an icon is drawn with, or "" for a Font Awesome name that SillyTavern's icons do not have. */
+function glyphOf(icon) {
+    if (!icon.startsWith('fa-')) return icon;
+    const probe = el('i', { className: icon });
+    document.body.append(probe);
+    const content = getComputedStyle(probe, '::before').content;
+    probe.remove();
+    return content.match(/^"(.+)"$/)?.[1] ?? '';
+}
+
+/** Writes the picked colours and icons as CSS. Messages already on screen pick them up without redrawing. */
+function applyPicks() {
     let style = document.getElementById('eyemessage-colours');
     if (!style) {
         style = document.createElement('style');
         style.id = 'eyemessage-colours';
         document.head.append(style);
     }
-    style.textContent = Object.entries(store().colors)
-        .filter(([, hex]) => /^#[0-9a-f]{6}$/i.test(hex))
-        .map(([key, hex]) => overrideRule(key, hex)).join('\n');
+    style.textContent = [
+        ...pickRules(store()),
+        ...Object.entries(store().icons).map(([key, saved]) => {
+            const icon = readIcon(saved);
+            return iconRule(key, glyphOf(icon), icon.startsWith('fa-'));
+        }),
+    ].join('\n');
 }
 
-/** Everyone else named in this chat's tags, most frequent first. */
+/**
+ * Everyone else with a colour in this chat's tags: those with a picked one, then the most frequent, then the
+ * latest. A person's aliases are counted with them; `aliases` is each one's name by its key.
+ */
 function contactsInChat() {
     const found = new Map();
     const own = ownNames();
-    for (const message of SillyTavern.getContext().chat) {
+    const current = store();
+    const contact = key => found.get(key) ?? found.set(key, { key, name: current.names[key] ?? key, count: 0, at: -1, sender: false, aliases: new Map() }).get(key);
+    for (const [at, message] of SillyTavern.getContext().chat.entries()) {
         for (const { name, kind } of collectContacts(message?.mes)) {
             const key = normaliseName(name);
             if (!key || own.has(key)) continue;
-            const entry = found.get(key) ?? { key, name, count: 0, sender: false };
+            const person = personOf(current, key);
+            const entry = contact(person);
+            if (key === person && !entry.seen) Object.assign(entry, { name, seen: true });
+            if (key !== person && !entry.aliases.has(key)) entry.aliases.set(key, name);
             entry.count++;
+            entry.at = at;
             entry.sender ||= kind === 'sender';
-            found.set(key, entry);
         }
     }
-    return [...found.values()].sort((a, b) => b.count - a.count);
+    // Colours and aliases for names that are not in this chat.
+    for (const key of Object.keys(current.colors)) if (personOf(current, key) === key) contact(key);
+    for (const [key, person] of Object.entries(current.aliases)) {
+        const { aliases } = contact(person);
+        if (!aliases.has(key)) aliases.set(key, current.names[key] ?? key);
+    }
+    const picked = entry => Number(Object.hasOwn(current.colors, entry.key));
+    return [...found.values()].sort((a, b) => picked(b) - picked(a) || b.count - a.count || b.at - a.at);
 }
 
 const el = (tag, props = {}, ...children) => {
@@ -299,53 +363,157 @@ const el = (tag, props = {}, ...children) => {
     return node;
 };
 
-function contactRow(contact, list) {
+/**
+ * @param {(change: (s: object) => void) => void} relist Changes the set and draws the list again.
+ * @param {(typed: string) => string|null} find The key of the listed contact with this name.
+ */
+function contactRow(contact, list, relist, find) {
     const saved = store().colors[contact.key];
-    const picker = el('input', { type: 'color', value: saved ?? autoHex(contact.name), title: 'Pick a colour' });
+    const picker = el('input', { type: 'color', value: saved ?? autoHex(contact.key), title: 'Pick a colour' });
     const reset = el('div', { className: 'menu_button', textContent: 'Auto', title: 'Go back to the automatic colour' });
     reset.hidden = !saved;
     const change = (hex) => {
         edit((s) => { if (hex) s.colors[contact.key] = hex; else delete s.colors[contact.key]; });
-        picker.value = hex ?? autoHex(contact.name);
+        picker.value = hex ?? autoHex(contact.key);
         reset.hidden = !hex;
-        applyColours();
+        applyPicks();
     };
     picker.addEventListener('input', () => change(picker.value));
     reset.addEventListener('click', () => change(null));
+
+    const same = el('input', { type: 'text', className: 'text_pole eyemessage-same', placeholder: 'Same person as…', hidden: true });
+    same.setAttribute('list', 'eyemessage-people');
+    same.addEventListener('change', () => {
+        const typed = same.value.trim();
+        const main = find(typed);
+        if (main && main !== contact.key) relist(s => linkAlias(s, contact.key, main));
+        else if (typed) globalThis.toastr?.warning(main ? 'That is the same row.' : `No one called ${typed} is in the list.`, 'EyeMessage');
+    });
+    // Some browsers report a suggestion that was picked as input only, until the box is left.
+    same.addEventListener('input', (event) => {
+        const picked = !event.inputType || event.inputType === 'insertReplacementText';
+        if (picked && find(same.value.trim())) same.dispatchEvent(new Event('change'));
+    });
+    const link = el('div', { className: 'menu_button fa-solid fa-link', title: 'This is the same person as another in the list' });
+    link.addEventListener('click', () => { same.hidden = !same.hidden; if (!same.hidden) same.focus(); });
+
     list.append(el('div', { className: 'eyemessage-row' },
         picker,
         el('span', { className: 'eyemessage-name', textContent: contact.name }),
         el('span', { className: 'eyemessage-count', textContent: contact.count ? `×${contact.count}` : 'not in this chat' }),
         reset,
+        link,
+    ), same);
+    if (!contact.aliases.size) return;
+    list.append(el('div', { className: 'eyemessage-aliases' }, ...[...contact.aliases].map(([key, name]) => {
+        const part = el('button', { type: 'button', textContent: '✕', title: `${name} is someone else` });
+        part.addEventListener('click', () => relist(s => unlinkAlias(s, key)));
+        return el('span', {}, name, part);
+    })));
+}
+
+/** Every app named in this chat's conversations, most used first, then those with an icon that are not in it. */
+function appsToList() {
+    const found = new Map();
+    for (const message of SillyTavern.getContext().chat) {
+        for (const name of appsIn(message?.mes)) {
+            const key = normaliseName(name);
+            if (!key) continue;
+            const entry = found.get(key) ?? { key, name, count: 0 };
+            entry.count++;
+            found.set(key, entry);
+        }
+    }
+    const elsewhere = Object.keys(store().icons).filter(key => !found.has(key)).map(key => ({ key, name: key, count: 0 }));
+    return [...[...found.values()].sort((a, b) => b.count - a.count), ...elsewhere];
+}
+
+function appRow(app, list) {
+    const input = el('input', {
+        type: 'text', className: 'text_pole eyemessage-icon-box', placeholder: 'emoji or fa-name',
+        title: 'An emoji, or a Font Awesome name such as fa-camera or fa-instagram. Empty for the dot.',
+    });
+    const preview = el('span', { className: 'eyemessage-icon' });
+    const pick = el('div', { className: 'menu_button fa-solid fa-icons', title: 'Pick from SillyTavern\'s icons' });
+    const show = () => {
+        const icon = readIcon(store().icons[app.key]);
+        input.value = icon;
+        preview.className = icon.startsWith('fa-') ? `eyemessage-icon eyemessage-fa ${icon}` : 'eyemessage-icon';
+        preview.textContent = icon.startsWith('fa-') ? '' : icon;
+    };
+    const change = (typed) => {
+        const icon = readIcon(typed);
+        if (icon && !glyphOf(icon)) {
+            globalThis.toastr?.warning(`SillyTavern has no icon called ${icon}.`, 'EyeMessage');
+        } else {
+            edit((s) => { if (icon) s.icons[app.key] = icon; else delete s.icons[app.key]; });
+            applyPicks();
+        }
+        show();
+    };
+    input.addEventListener('change', () => change(input.value));
+    pick.addEventListener('click', async () => {
+        // Imported when used, so that a SillyTavern without it only loses this button.
+        const { showFontAwesomePicker } = await import('../../../utils.js');
+        const picked = await showFontAwesomePicker();
+        if (picked !== null) change(picked);
+    });
+    show();
+    list.append(el('div', { className: 'eyemessage-row' },
+        preview,
+        el('span', { className: 'eyemessage-name', textContent: app.name }),
+        el('span', { className: 'eyemessage-count', textContent: `×${app.count}`, title: 'Conversations in this chat' }),
+        input,
+        pick,
     ));
 }
 
 /** Throwaway live-chat handles would swamp the list, so only the most frequent are shown. */
 const CHAT_NAMES_SHOWN = 20;
+/** A long chat has dozens of contacts, most of them seen once. The rest of a group is folded under these. */
+const ROWS_SHOWN = 8;
 
 function fillPanel(body) {
-    const { colors, names } = store();
     const { accounts, handles } = mine();
-    const inChat = contactsInChat();
-    const known = new Set(inChat.map(c => c.key));
-    const elsewhere = Object.keys(colors).filter(key => !known.has(key)).map(key => ({ key, name: names[key] ?? key, count: 0 }));
+    const contacts = contactsInChat();
+    const inChat = contacts.filter(c => c.count);
     const groups = [
         ['Message senders', inChat.filter(c => c.sender)],
         ['Live chat names', inChat.filter(c => !c.sender).slice(0, CHAT_NAMES_SHOWN)],
-        ['Coloured, not in this chat', elsewhere],
-    ].filter(([, contacts]) => contacts.length);
+        ['Not in this chat', contacts.filter(c => !c.count)],
+    ].filter(([, listed]) => listed.length);
+    const listed = groups.flatMap(([, group]) => group);
+    const find = typed => listed.find(c => c.key === normaliseName(typed) || c.aliases.has(normaliseName(typed)))?.key ?? null;
+    const relist = (change) => { edit(change); applyPicks(); fillPanel(body); };
+    // A fold that was open stays open when the list is drawn again.
+    const open = new Set([...body.querySelectorAll('details[open]')].map(fold => fold.dataset.group));
 
-    body.replaceChildren();
+    body.replaceChildren(el('datalist', { id: 'eyemessage-people' }, ...listed.map(c => el('option', { value: c.name }))));
     if (!groups.length) {
         body.append(el('div', {
             className: 'eyemessage-empty',
-            textContent: 'No senders in this chat yet. They appear here once a message uses an EyeMessage tag.',
+            textContent: 'No senders yet.',
         }));
     }
-    for (const [title, contacts] of groups) {
+    for (const [title, group] of groups) {
         const list = el('div', { className: 'eyemessage-list' });
-        contacts.forEach(contact => contactRow(contact, list));
+        const shown = group.length > ROWS_SHOWN + 2 ? ROWS_SHOWN : group.length; // a fold of one or two saves nothing
+        group.slice(0, shown).forEach(contact => contactRow(contact, list, relist, find));
         body.append(el('div', { className: 'eyemessage-group', textContent: title }), list);
+        const rest = group.slice(shown);
+        if (!rest.length) continue;
+        const more = el('div', { className: 'eyemessage-list' });
+        rest.forEach(contact => contactRow(contact, more, relist, find));
+        const fold = el('details', { className: 'eyemessage-more', open: open.has(title) }, el('summary', { textContent: `${rest.length} more` }), more);
+        fold.dataset.group = title;
+        body.append(fold);
+    }
+
+    const apps = appsToList();
+    if (apps.length) {
+        const list = el('div', { className: 'eyemessage-list' });
+        apps.forEach(app => appRow(app, list));
+        body.append(el('div', { className: 'eyemessage-group', textContent: 'Apps' }), list);
     }
 
     if (accounts.length) {
@@ -362,7 +530,7 @@ function fillPanel(body) {
         body.append(el('div', { className: 'eyemessage-group', textContent: `Your accounts as ${personaName()}` }), list);
     }
 
-    const refresh = el('div', { className: 'menu_button', textContent: 'Refresh list' });
+    const refresh = el('div', { className: 'menu_button', textContent: 'Refresh' });
     refresh.addEventListener('click', () => fillPanel(body));
     body.append(refresh);
 }
@@ -373,14 +541,26 @@ function addPanel() {
     const body = el('div');
     const where = el('small');
     const inject = el('input', { type: 'checkbox' });
+    const hud = el('input', { type: 'checkbox' });
+    hud.addEventListener('change', () => { edit((s) => { s.hud = hud.checked; }); setInstruction(); });
+    const hudLabel = el('label', { className: 'checkbox_label', title: 'Adds a styled HUD screen to the prompt (about 1,100 characters).' },
+        hud, el('span', { textContent: 'HUD example' }));
     // One box per kind of object: which ones the instructions cover. Every kind is drawn either way.
     const taughtBoxes = TAGS.map((tag) => {
         const box = el('input', { type: 'checkbox' });
-        box.addEventListener('change', () => { edit((s) => { s.tags[tag] = box.checked; }); setInstruction(); });
+        box.addEventListener('change', () => {
+            edit((s) => { s.tags[tag] = box.checked; });
+            setInstruction();
+            if (tag === 'screen') hud.disabled = !box.checked;
+        });
         return { tag, box };
     });
     const taughtList = el('div', { className: 'eyemessage-taught' },
-        ...taughtBoxes.map(({ tag, box }) => el('label', { className: 'checkbox_label' }, box, el('span', { textContent: TAG_LABELS[tag] ?? tag }))));
+        ...taughtBoxes.flatMap(({ tag, box }) => [el('label', { className: 'checkbox_label' }, box, el('span', { textContent: TAG_LABELS[tag] ?? tag })),
+            ...(tag === 'screen' ? [hudLabel] : [])]));
+    const styles = el('textarea', { className: 'text_pole eyemessage-styles', rows: 3, spellcheck: false,
+        placeholder: '<club>color:gold;background:#080808</club>' });
+    styles.addEventListener('change', () => { scope().ext.styles = styles.value.trim(); SillyTavern.getContext().saveSettingsDebounced(); });
     const share = el('input', { type: 'checkbox' });
     const header = el('div', { className: 'inline-drawer-toggle inline-drawer-header' },
         el('b', { textContent: 'EyeMessage' }),
@@ -390,10 +570,12 @@ function addPanel() {
         el('div', { className: 'inline-drawer' }, header,
             el('div', { className: 'inline-drawer-content' },
                 el('label', { className: 'checkbox_label', title: 'Adds the instructions for writing messages as tags to the system prompt. On unless you turn it off.' },
-                    inject, el('span', { textContent: 'Inject message template instructions into system prompt' })),
+                    inject, el('span', { textContent: 'Instruct the model' })),
                 taughtList,
-                el('label', { className: 'checkbox_label', title: 'Off: this chat keeps its own colours and accounts, and its branches inherit them. On: every chat of this character uses one set.' },
-                    share, el('span', { textContent: 'Share with all of this character\'s chats' })),
+                el('label', { title: 'CSS by name, used with class="name" in any chat.' },
+                    el('span', { textContent: 'Saved styles' }), styles),
+                el('label', { className: 'checkbox_label', title: 'Off: this chat keeps its own colours, aliases, icons and accounts, and its branches inherit them. On: every chat of this character uses one set.' },
+                    share, el('span', { textContent: 'Share with character' })),
                 where,
                 body,
             ),
@@ -407,13 +589,16 @@ function addPanel() {
         share.checked = s.kind === 'character';
         inject.disabled = s.kind === 'none';
         for (const { tag, box } of taughtBoxes) {
-            box.checked = store().tags[tag] ?? taughtByDefault(tag);
+            box.checked = store().tags[tag] ?? true;
             box.disabled = s.kind === 'none' || !inject.checked;
         }
+        hud.checked = store().hud;
+        hud.disabled = s.kind === 'none' || !inject.checked || !(store().tags.screen ?? true);
+        styles.value = savedStyles();
         share.disabled = !s.key;
-        where.textContent = s.kind === 'none' ? 'Open a chat to set colours and accounts.'
-            : s.kind === 'character' ? `Colours and accounts are shared by all chats of ${s.title}.`
-                : 'Colours and accounts are kept in this chat.';
+        where.textContent = s.kind === 'none' ? 'Open a chat.'
+            : s.kind === 'character' ? `Shared by all of ${s.title}'s chats.`
+                : 'Kept in this chat.';
         fillPanel(body);
     };
     inject.addEventListener('change', () => { edit((s) => { s.inject = inject.checked; }); setInstruction(); refresh(); });
@@ -431,14 +616,14 @@ function onChatChanged() {
     moveLegacy();
     collectNames();
     setInstruction();
-    applyColours();
+    applyPicks();
     refreshPanel();
 }
 eventSource.on(eventTypes.CHAT_CHANGED, () => {
     try {
         onChatChanged();
     } catch (error) {
-        console.error('[EyeMessage] Could not load this chat\'s colours and accounts; tags are still drawn.', error);
+        console.error('[EyeMessage] Could not load this chat\'s colours, aliases, icons and accounts; tags are still drawn.', error);
     }
 });
 
